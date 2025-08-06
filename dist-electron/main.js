@@ -4460,7 +4460,34 @@ function createBrowserWindow(isMain = false) {
       "https://accounts.google.com"
     ];
     if (oauthProviders.some((provider) => url.startsWith(provider))) {
-      shell.openExternal(url);
+      const authWindow = new BrowserWindow({
+        width: 800,
+        height: 600,
+        show: false,
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+          webSecurity: true,
+          partition: "persist:shared-auth"
+          // Use the same shared session
+        }
+      });
+      authWindow.loadURL(url);
+      authWindow.show();
+      authWindow.webContents.on("will-navigate", (event, newUrl) => {
+        if (newUrl.startsWith("aussievault://callback")) {
+          console.log("OAuth Callback URL:", newUrl);
+          authWindow.close();
+          event.preventDefault();
+        }
+      });
+      authWindow.webContents.on("did-redirect-navigation", (event, newUrl) => {
+        if (newUrl.startsWith("aussievault://callback")) {
+          console.log("OAuth Callback URL (redirect):", newUrl);
+          authWindow.close();
+          event.preventDefault();
+        }
+      });
       return { action: "deny" };
     }
     return { action: "deny" };
@@ -5401,46 +5428,6 @@ app.on("activate", () => {
   }
 });
 app.on("web-contents-created", (_event, contents) => {
-  const isGoogleAuthUrl = (url) => {
-    if (!url.includes("accounts.google.com")) return false;
-    const authPaths = [
-      "/signin",
-      "/oauth",
-      "/o/oauth2",
-      "/ServiceLogin",
-      "/v3/signin",
-      "/identifier",
-      "/gsi"
-    ];
-    return authPaths.some((path2) => url.includes(path2));
-  };
-  contents.on("did-start-navigation", (event, url, isInPlace, isMainFrame) => {
-    const isMainWindowContents = mainWindow && !mainWindow.isDestroyed() && contents === mainWindow.webContents;
-    if (!isMainWindowContents && isMainFrame && isGoogleAuthUrl(url)) {
-      console.log("🔐 [did-start-navigation] Blocking Google auth - will open externally:", url);
-      contents.loadURL("about:blank").then(() => {
-        console.log("✅ Redirected to blank page");
-      }).catch((err) => {
-        console.warn("⚠️ Could not redirect:", err);
-      });
-      shell.openExternal(url).then(() => {
-        console.log("✅ Successfully opened Google auth in external browser");
-      }).catch((error) => {
-        console.error("❌ Failed to open external browser:", error);
-        if (process.platform === "win32") {
-          const { exec } = require("child_process");
-          exec(`cmd /c start "" "${url.replace(/"/g, '""')}"`, (err) => {
-            if (err) {
-              console.error("❌ Alternative method also failed:", err);
-              exec(`powershell -Command "Start-Process '${url}'"`, (psErr) => {
-                if (psErr) console.error("❌ PowerShell method also failed:", psErr);
-              });
-            }
-          });
-        }
-      });
-    }
-  });
   contents.on("will-navigate", (event, navigationUrl) => {
     try {
       const isMainWindowContents = mainWindow && !mainWindow.isDestroyed() && contents === mainWindow.webContents;
@@ -5470,30 +5457,9 @@ app.on("web-contents-created", (_event, contents) => {
         } else if (oauthProviders.some((provider) => navigationUrl.startsWith(provider))) {
         }
       } else {
-        if (isGoogleAuthUrl(navigationUrl)) {
-          console.log("🔐 [will-navigate] Blocking Google auth - opening externally:", navigationUrl);
-          event.preventDefault();
-          setTimeout(() => {
-            shell.openExternal(navigationUrl).then(() => {
-              console.log("✅ Successfully opened Google auth in external browser");
-            }).catch((error) => {
-              console.error("❌ Failed to open external browser:", error);
-              if (process.platform === "win32") {
-                const { exec } = require("child_process");
-                exec(`cmd /c start "" "${navigationUrl.replace(/"/g, '""')}"`, (err) => {
-                  if (err) {
-                    console.error("❌ Alternative method also failed:", err);
-                    exec(`powershell -Command "Start-Process '${navigationUrl}'"`, (psErr) => {
-                      if (psErr) console.error("❌ PowerShell method also failed:", psErr);
-                    });
-                  }
-                });
-              }
-            });
-          }, 100);
-          return;
-        }
         const externalAuthPatterns = [
+          "accounts.google.com/signin",
+          "accounts.google.com/oauth",
           "login.microsoftonline.com",
           "/oauth/authorize",
           "/auth/login",
@@ -5503,7 +5469,7 @@ app.on("web-contents-created", (_event, contents) => {
           (pattern) => navigationUrl.toLowerCase().includes(pattern)
         );
         if (shouldOpenExternally) {
-          console.log("�� Intercepting OAuth flow - opening in system browser:", navigationUrl);
+          console.log("🔐 Intercepting OAuth flow - opening in system browser:", navigationUrl);
           event.preventDefault();
           shell.openExternal(navigationUrl);
         } else {
@@ -5515,36 +5481,6 @@ app.on("web-contents-created", (_event, contents) => {
         event.preventDefault();
       }
     }
-  });
-  contents.setWindowOpenHandler((details) => {
-    const { url } = details;
-    try {
-      const parsedUrl = new URL(url);
-      const isMainWindowContents = mainWindow && !mainWindow.isDestroyed() && contents === mainWindow.webContents;
-      if (!isMainWindowContents) {
-        const externalAuthPatterns = [
-          "accounts.google.com/signin",
-          "accounts.google.com/oauth",
-          "accounts.google.com/o/oauth2",
-          "accounts.google.com/gsi",
-          "login.microsoftonline.com",
-          "/oauth/authorize",
-          "/auth/login",
-          "oauth.live.com"
-        ];
-        const shouldOpenExternally = externalAuthPatterns.some(
-          (pattern) => url.toLowerCase().includes(pattern)
-        );
-        if (shouldOpenExternally) {
-          console.log("🔐 Intercepting OAuth popup - opening in system browser:", url);
-          shell.openExternal(url);
-          return { action: "deny" };
-        }
-      }
-    } catch (error) {
-      console.error("❌ Error in window open handler:", error);
-    }
-    return { action: "allow" };
   });
 });
 ipcMain.handle("open-external-auth", async (_event, url) => {

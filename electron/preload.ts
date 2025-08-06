@@ -192,6 +192,13 @@ contextBridge.exposeInMainWorld('secureBrowser', {
     removeActionListener: () => {
       ipcRenderer.removeAllListeners('context-menu-action')
     }
+  },
+
+  // Auth Operations
+  auth: {
+    startGoogleSignIn: () => ipcRenderer.send('start-google-signin'),
+    onGoogleSignInSuccess: (callback: (userInfo: any) => void) => ipcRenderer.on('google-signin-success', (_, userInfo) => callback(userInfo)),
+    removeGoogleSignInListener: () => ipcRenderer.removeAllListeners('google-signin-success')
   }
 })
 
@@ -300,6 +307,11 @@ export interface SecureBrowserAPI {
   };
   on: (channel: string, func: (...args: any[]) => void) => void;
   removeListener: (channel: string, func: (...args: any[]) => void) => void;
+  auth: {
+    startGoogleSignIn: () => void;
+    onGoogleSignInSuccess: (callback: (userInfo: any) => void) => void;
+    removeGoogleSignInListener: () => void;
+  };
 }
 
 declare global {

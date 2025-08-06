@@ -7,6 +7,7 @@ import { homedir } from 'os'
 import os from 'os'
 import { getPlatformInfo, printPlatformInstructions } from '../src/utils/platform.js'
 import electronSquirrelStartup from 'electron-squirrel-startup'
+import fetch from 'node-fetch';
 
 // Type definitions for better code maintainability
 export interface IPGeolocationResult {
@@ -1365,31 +1366,22 @@ function createBrowserWindow(isMain: boolean = false): BrowserWindow {
   newWindow.webContents.setWindowOpenHandler((details) => {
     const url = details.url;
     
-    // Allow OAuth popup windows in system browser
+    // For security, all popups are blocked by default.
+    // We will specifically handle Google OAuth by opening it in the system's default browser.
     const oauthProviders = [
       'https://accounts.google.com',
-      'https://login.microsoftonline.com',
-      'https://github.com/login',
-      'https://clerk.shared.lcl.dev',
-      'https://api.clerk.dev',
-      'https://clerk.dev',
-      'https://major-snipe-9.clerk.accounts.dev'
     ];
     
     if (oauthProviders.some(provider => url.startsWith(provider))) {
-      // console.log('🔐 Opening OAuth in system browser:', url);
-      
-      // Open OAuth in system browser instead of popup
+      // This is the recommended and most secure way to handle OAuth.
+      // It uses the user's trusted, default browser for authentication.
       shell.openExternal(url);
-      
       return { action: 'deny' };
     }
     
-    // For non-OAuth URLs, deny new windows but allow navigation in same window
-    // The webview should handle normal link navigation automatically
-    // console.log('🔗 Blocking popup for regular link, allowing in-page navigation:', url);
-    return { action: 'deny' }
-  })
+    // Block all other popups.
+    return { action: 'deny' };
+  });
 
   // 🔐 AGGRESSIVE KEYBOARD HANDLING: Intercept all keyboard events before webview
   newWindow.webContents.on('before-input-event', (event, input) => {
@@ -2507,46 +2499,46 @@ ipcMain.handle('window-close', async (_event, windowId?: number) => {
 
 // Initialize security configuration
 app.whenReady().then(async () => {
-  // console.log('🚀 Initializing Aussie Vault Browser...')
+  // Set a more realistic User-Agent that mimics a real Chrome browser
+  const chromeUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
   
-  // Set app icon for dock/taskbar
-  if (process.platform === 'darwin' && app.dock) {
-    app.dock.setIcon(path.join(__dirname, '../build/icon.png'))
+  // Apply User-Agent to default session
+  session.defaultSession.setUserAgent(chromeUserAgent);
+  
+  // Also apply to the shared auth session
+  const sharedAuthSession = session.fromPartition('persist:shared-auth');
+  sharedAuthSession.setUserAgent(chromeUserAgent);
+  
+
+
+  if (process.platform === "darwin" && app.dock) {
+    app.dock.setIcon(path.join(__dirname, "../build/icon.png"));
   }
   
-  // Load environment variables first
-  await loadEnvironmentVariables()
+  await loadEnvironmentVariables();
+  configureSecureSession();
   
-  // Configure secure session before creating any windows
-  configureSecureSession()
-  
-  // Handle certificate errors for development and enterprise environments
-  app.on('certificate-error', (event, _webContents, _url, _error, _certificate, callback) => {
-    // In development or when explicitly allowed, ignore certificate errors
-    if (process.env.NODE_ENV === 'development' || process.env.IGNORE_CERTIFICATE_ERRORS === 'true') {
+  app.on("certificate-error", (event, _webContents, _url, _error, _certificate, callback) => {
+    if (process.env.NODE_ENV === "development" || process.env.IGNORE_CERTIFICATE_ERRORS === "true") {
       event.preventDefault();
       callback(true);
     } else {
       callback(false);
     }
   });
-  
-  // Initialize VPN connection first
-  console.log('🔌 Starting VPN connection...')
-  const vpnConnected = await connectVPN()
-  updateVPNStatus(vpnConnected)
-  
+
+  console.log("🔌 Starting VPN connection...");
+  const vpnConnected = await connectVPN();
+  updateVPNStatus(vpnConnected);
+
   if (!vpnConnected) {
-    console.log('❌ VPN connection failed - starting with restricted access')
+    console.log("❌ VPN connection failed - starting with restricted access");
   } else {
-    console.log('✅ VPN connected successfully - unrestricted access enabled')
+    console.log("✅ VPN connected successfully - unrestricted access enabled");
   }
   
-  createWindow()
-}).catch((_error) => {
-  // console.error('❌ Failed to initialize app:', _error)
-  app.quit()
-})
+  createWindow();
+});
 
 // Remove global shortcuts - they cause duplicates with before-input-event
 // We'll use only before-input-event for more precise control
@@ -2755,3 +2747,59 @@ process.on('SIGTERM', () => {
   
   app.quit()
 })
+
+app.setAsDefaultProtocolClient('aussievault');
+
+const exchangeCodeForToken = async (code: string) => {
+  const response = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      code,
+      client_id: process.env.GOOGLE_CLIENT_ID || 'YOUR_CLIENT_ID',
+      client_secret: process.env.GOOGLE_CLIENT_SECRET || 'YOUR_CLIENT_SECRET',
+      redirect_uri: 'aussievault://callback',
+      grant_type: 'authorization_code',
+    }),
+  });
+  return response.json();
+}
+
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  const authCode = new URL(url).searchParams.get('code');
+  if (authCode) {
+    exchangeCodeForToken(authCode).then(async (tokens) => {
+      const userResponse = await fetch(`https://www.googleapis.com/oauth2/v1/userinfo?access_token=${tokens.access_token}`);
+      const userInfo = await userResponse.json();
+      windows.forEach(win => {
+        win.webContents.send('google-signin-success', userInfo);
+      });
+    }).catch(err => {
+      console.error('Error exchanging code:', err);
+    });
+  }
+});
+
+app.on('second-instance', (event, argv) => {
+  const url = argv.find(arg => arg.startsWith('aussievault://'));
+  if (url) {
+    const authCode = new URL(url).searchParams.get('code');
+    if (authCode) {
+      exchangeCodeForToken(authCode).then(async (tokens) => {
+        const userResponse = await fetch(`https://www.googleapis.com/oauth2/v1/userinfo?access_token=${tokens.access_token}`);
+        const userInfo = await userResponse.json();
+        windows.forEach(win => {
+          win.webContents.send('google-signin-success', userInfo);
+        });
+      }).catch(err => {
+        console.error('Error exchanging code:', err);
+      });
+    }
+  }
+});
+
+ipcMain.on('start-google-signin', () => {
+  const signInUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID || 'YOUR_CLIENT_ID'}&amp;redirect_uri=aussievault://callback&amp;response_type=code&amp;scope=profile%20email`;
+  shell.openExternal(signInUrl);
+});

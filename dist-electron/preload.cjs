@@ -180,6 +180,12 @@ electron.contextBridge.exposeInMainWorld("secureBrowser", {
     removeActionListener: () => {
       electron.ipcRenderer.removeAllListeners("context-menu-action");
     }
+  },
+  // Auth Operations
+  auth: {
+    startGoogleSignIn: () => electron.ipcRenderer.send("start-google-signin"),
+    onGoogleSignInSuccess: (callback) => electron.ipcRenderer.on("google-signin-success", (_, userInfo) => callback(userInfo)),
+    removeGoogleSignInListener: () => electron.ipcRenderer.removeAllListeners("google-signin-success")
   }
 });
 console.log("🔧 Preload: electronAPI exposed to window with methods:", {

@@ -184,6 +184,22 @@ export const ClerkLoginForm: React.FC<ClerkLoginFormProps> = ({
     };
   }, [onAuthSuccess, onAuthError]);
 
+  useEffect(() => {
+    window.secureBrowser.auth.onGoogleSignInSuccess((userInfo) => {
+      onAuthSuccess({
+        id: userInfo.id,
+        name: userInfo.name,
+        email: userInfo.email,
+        accessLevel: 1,
+        avatar: userInfo.picture
+      });
+    });
+
+    return () => {
+      window.secureBrowser.auth.removeGoogleSignInListener();
+    };
+  }, [onAuthSuccess]);
+
   const handleSignIn = async () => {
     try {
       setIsSigningIn(true);
@@ -362,6 +378,18 @@ export const ClerkLoginForm: React.FC<ClerkLoginFormProps> = ({
                   Create new account
                 </div>
               )}
+            </Button>
+
+            <Separator className="my-4" />
+
+            <Button
+              onClick={() => window.secureBrowser.auth.startGoogleSignIn()}
+              className="w-full h-12 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
+            >
+              <div className="flex items-center gap-2">
+                <Chrome className="w-4 h-4" />
+                Sign in with Google
+              </div>
             </Button>
 
             {/* Features List */}

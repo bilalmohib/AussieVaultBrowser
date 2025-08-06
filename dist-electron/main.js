@@ -14,6 +14,7 @@ import Url from "url";
 import require$$0$2 from "punycode";
 import https from "https";
 import zlib from "zlib";
+import crypto from "crypto";
 const detectPlatform = () => {
   if (typeof window !== "undefined") {
     const userAgent = navigator.userAgent.toLowerCase();
@@ -3564,6 +3565,17 @@ fetch.isRedirect = function(code) {
   return code === 301 || code === 302 || code === 303 || code === 307 || code === 308;
 };
 fetch.Promise = global.Promise;
+function base64URLEncode(str) {
+  return str.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+}
+function sha256(buffer) {
+  return crypto.createHash("sha256").update(buffer).digest();
+}
+function generatePKCECodes() {
+  const codeVerifier = base64URLEncode(crypto.randomBytes(32));
+  const codeChallenge = base64URLEncode(sha256(codeVerifier));
+  return { codeVerifier, codeChallenge };
+}
 const VPN_CHECK_TIMEOUT = 1e4;
 const PROCESS_TIMEOUT = 3e4;
 const IP_GEOLOCATION_API = "https://ipinfo.io/json";
@@ -3902,7 +3914,9 @@ const checkCurrentIP = async () => {
       }
     });
     psProcess.on("error", (_error) => {
-      console.log("🔧 PowerShell process error, assuming Australian for development");
+      console.log(
+        "🔧 PowerShell process error, assuming Australian for development"
+      );
       resolve(true);
     });
     setTimeout(() => {
@@ -3969,13 +3983,27 @@ const configureSecureSession = () => {
     webviewSession.webRequest.onCompleted(null);
     webviewSession.webRequest.onErrorOccurred(null);
   } catch (e) {
-    console.log("🔧 Clearing webview session handlers:", (e == null ? void 0 : e.message) || "Unknown error");
+    console.log(
+      "🔧 Clearing webview session handlers:",
+      (e == null ? void 0 : e.message) || "Unknown error"
+    );
   }
   try {
     webviewSession.clearStorageData({
-      storages: ["cookies", "filesystem", "indexdb", "localstorage", "shadercache", "websql", "serviceworkers", "cachestorage"]
+      storages: [
+        "cookies",
+        "filesystem",
+        "indexdb",
+        "localstorage",
+        "shadercache",
+        "websql",
+        "serviceworkers",
+        "cachestorage"
+      ]
     }).then(() => {
-      console.log("🧹 Webview session storage cleared for unrestricted browsing");
+      console.log(
+        "🧹 Webview session storage cleared for unrestricted browsing"
+      );
     });
   } catch (e) {
     console.log("🔧 Storage clear attempt:", (e == null ? void 0 : e.message) || "Unknown error");
@@ -4022,7 +4050,10 @@ const configureSecureSession = () => {
   webviewSession.webRequest.onBeforeRequest((details, callback) => {
     const url = details.url.toLowerCase();
     if (url.includes("google.com") || url.includes("microsoft.com") || url.includes("clerk") || url.includes("oauth")) {
-      console.log("🌐 WEBVIEW AUTH: Allowing critical auth request:", details.url);
+      console.log(
+        "🌐 WEBVIEW AUTH: Allowing critical auth request:",
+        details.url
+      );
     }
     callback({ cancel: false });
   });
@@ -4038,7 +4069,7 @@ const configureSecureSession = () => {
       requestHeaders: {
         ...details.requestHeaders,
         "User-Agent": userAgent,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
         "Accept-Language": "en-US,en;q=0.9",
         "Accept-Encoding": "gzip, deflate, br",
         "Sec-Fetch-Site": "none",
@@ -4052,9 +4083,11 @@ const configureSecureSession = () => {
   webviewSession.setCertificateVerifyProc((_request, callback) => {
     callback(0);
   });
-  webviewSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
-    callback(true);
-  });
+  webviewSession.setPermissionRequestHandler(
+    (_webContents, _permission, callback) => {
+      callback(true);
+    }
+  );
   webviewSession.webRequest.onHeadersReceived((details, callback) => {
     const responseHeaders = { ...details.responseHeaders };
     delete responseHeaders["X-Frame-Options"];
@@ -4068,12 +4101,16 @@ const configureSecureSession = () => {
     callback({ responseHeaders });
   });
   webviewSession.setProxy({ mode: "direct" }).then(() => {
-    console.log("🌐 Webview session proxy set to direct mode for maximum speed");
+    console.log(
+      "🌐 Webview session proxy set to direct mode for maximum speed"
+    );
   });
   webviewSession.clearCache().then(() => {
     console.log("🧹 Webview session cache cleared for fresh start");
   });
-  console.log("🌐 Webview session configured with ABSOLUTE ZERO restrictions for maximum compatibility");
+  console.log(
+    "🌐 Webview session configured with ABSOLUTE ZERO restrictions for maximum compatibility"
+  );
   const handleDownload = async (event, item, sessionName) => {
     if (process.env.SECURITY_BLOCK_DOWNLOADS === "true") {
       event.preventDefault();
@@ -4200,7 +4237,10 @@ const configureSecureSession = () => {
           window2.webContents.send("download-started", uploadStartedData);
         }
       });
-      const tempPath = path.join(os.tmpdir(), `temp_${downloadId}_${item.getFilename()}`);
+      const tempPath = path.join(
+        os.tmpdir(),
+        `temp_${downloadId}_${item.getFilename()}`
+      );
       item.setSavePath(tempPath);
       return new Promise((resolve, reject) => {
         item.on("updated", (_event, state) => {
@@ -4223,7 +4263,11 @@ const configureSecureSession = () => {
         item.once("done", async (_event, state) => {
           if (state === "completed") {
             try {
-              await uploadToMetaStorage(downloadId, tempPath, item.getFilename());
+              await uploadToMetaStorage(
+                downloadId,
+                tempPath,
+                item.getFilename()
+              );
               try {
                 await promises.unlink(tempPath);
               } catch (cleanupError) {
@@ -4325,30 +4369,94 @@ const configureSecureSession = () => {
       } else {
       }
     } catch (error) {
-      console.warn("⚠️ Could not load 1Password extension on shared session:", error);
+      console.warn(
+        "⚠️ Could not load 1Password extension on shared session:",
+        error
+      );
     }
   };
   const find1PasswordExtension = async () => {
     const possiblePaths = [
       // Chrome/Chromium paths
-      path.join(homedir(), "AppData", "Local", "Google", "Chrome", "User Data", "Default", "Extensions", "aeblfdkhhhdcdjpifhhbdiojplfjncoa"),
-      path.join(homedir(), "Library", "Application Support", "Google", "Chrome", "Default", "Extensions", "aeblfdkhhhdcdjpifhhbdiojplfjncoa"),
-      path.join(homedir(), ".config", "google-chrome", "Default", "Extensions", "aeblfdkhhhdcdjpifhhbdiojplfjncoa"),
+      path.join(
+        homedir(),
+        "AppData",
+        "Local",
+        "Google",
+        "Chrome",
+        "User Data",
+        "Default",
+        "Extensions",
+        "aeblfdkhhhdcdjpifhhbdiojplfjncoa"
+      ),
+      path.join(
+        homedir(),
+        "Library",
+        "Application Support",
+        "Google",
+        "Chrome",
+        "Default",
+        "Extensions",
+        "aeblfdkhhhdcdjpifhhbdiojplfjncoa"
+      ),
+      path.join(
+        homedir(),
+        ".config",
+        "google-chrome",
+        "Default",
+        "Extensions",
+        "aeblfdkhhhdcdjpifhhbdiojplfjncoa"
+      ),
       // Edge paths
-      path.join(homedir(), "AppData", "Local", "Microsoft", "Edge", "User Data", "Default", "Extensions", "aeblfdkhhhdcdjpifhhbdiojplfjncoa"),
-      path.join(homedir(), "Library", "Application Support", "Microsoft Edge", "Default", "Extensions", "aeblfdkhhhdcdjpifhhbdiojplfjncoa"),
+      path.join(
+        homedir(),
+        "AppData",
+        "Local",
+        "Microsoft",
+        "Edge",
+        "User Data",
+        "Default",
+        "Extensions",
+        "aeblfdkhhhdcdjpifhhbdiojplfjncoa"
+      ),
+      path.join(
+        homedir(),
+        "Library",
+        "Application Support",
+        "Microsoft Edge",
+        "Default",
+        "Extensions",
+        "aeblfdkhhhdcdjpifhhbdiojplfjncoa"
+      ),
       // Firefox paths (1Password uses different ID)
-      path.join(homedir(), "AppData", "Roaming", "Mozilla", "Firefox", "Profiles"),
-      path.join(homedir(), "Library", "Application Support", "Firefox", "Profiles"),
+      path.join(
+        homedir(),
+        "AppData",
+        "Roaming",
+        "Mozilla",
+        "Firefox",
+        "Profiles"
+      ),
+      path.join(
+        homedir(),
+        "Library",
+        "Application Support",
+        "Firefox",
+        "Profiles"
+      ),
       path.join(homedir(), ".mozilla", "firefox")
     ];
     for (const basePath of possiblePaths) {
       try {
         if (await promises.access(basePath).then(() => true).catch(() => false)) {
           const entries = await promises.readdir(basePath);
-          const versionFolders = entries.filter((entry) => /^\d+\.\d+\.\d+/.test(entry));
+          const versionFolders = entries.filter(
+            (entry) => /^\d+\.\d+\.\d+/.test(entry)
+          );
           if (versionFolders.length > 0) {
-            const latestVersion = versionFolders.sort((a, b) => b.localeCompare(a))[0];
+            const latestVersion = versionFolders.sort(
+              (a, b) => b.localeCompare(a)
+            )[0];
             const extensionPath = path.join(basePath, latestVersion);
             const manifestPath = path.join(extensionPath, "manifest.json");
             if (await promises.access(manifestPath).then(() => true).catch(() => false)) {
@@ -4437,7 +4545,7 @@ function createBrowserWindow(isMain = false) {
       webSecurity: true,
       // Security: Disable node integration in workers
       nodeIntegrationInWorker: false,
-      // Security: Disable node integration in subframes  
+      // Security: Disable node integration in subframes
       nodeIntegrationInSubFrames: false,
       // 🔐 SHARED SESSION: All windows use the same session partition
       // This ensures authentication state (Clerk tokens, localStorage) is shared
@@ -4456,46 +4564,60 @@ function createBrowserWindow(isMain = false) {
   });
   newWindow.webContents.setWindowOpenHandler((details) => {
     const url = details.url;
-    const oauthProviders = [
-      "https://accounts.google.com"
-    ];
-    if (oauthProviders.some((provider) => url.startsWith(provider))) {
-      const authWindow = new BrowserWindow({
-        width: 800,
-        height: 600,
-        show: false,
-        webPreferences: {
-          nodeIntegration: false,
-          contextIsolation: true,
-          webSecurity: true,
-          partition: "persist:shared-auth"
-          // Use the same shared session
+    const urlLower = url.toLowerCase();
+    const isOAuthFlow = (
+      // Direct Google OAuth URLs
+      urlLower.includes("accounts.google.com") || urlLower.includes("oauth.google.com") || // Microsoft OAuth URLs
+      urlLower.includes("login.microsoftonline.com") || urlLower.includes("login.live.com") || // Other OAuth providers
+      urlLower.includes("oauth") || urlLower.includes("openid") || urlLower.includes("/auth/") || urlLower.includes("/login/") || urlLower.includes("/signin/") || urlLower.includes("sso") || // Common OAuth parameters in URL
+      urlLower.includes("client_id=") || urlLower.includes("response_type=") || urlLower.includes("redirect_uri=") || urlLower.includes("scope=") || urlLower.includes("state=") || // Social login patterns
+      urlLower.includes("google") && (urlLower.includes("login") || urlLower.includes("auth")) || urlLower.includes("microsoft") && (urlLower.includes("login") || urlLower.includes("auth")) || urlLower.includes("facebook") && (urlLower.includes("login") || urlLower.includes("auth")) || urlLower.includes("twitter") && (urlLower.includes("login") || urlLower.includes("auth")) || urlLower.includes("github") && (urlLower.includes("login") || urlLower.includes("auth"))
+    );
+    if (isOAuthFlow) {
+      console.log("🌐 OAuth popup detected, opening in external browser:", url);
+      if (urlLower.includes("accounts.google.com") && !urlLower.includes("code_challenge")) {
+        try {
+          const { codeVerifier, codeChallenge } = generatePKCECodes();
+          global.pkceCodeVerifier = codeVerifier;
+          const authUrl = new URL(url);
+          authUrl.searchParams.append("code_challenge", codeChallenge);
+          authUrl.searchParams.append("code_challenge_method", "S256");
+          shell.openExternal(authUrl.toString());
+        } catch (error) {
+          console.log(
+            "⚠️ PKCE enhancement failed, opening original URL:",
+            error
+          );
+          shell.openExternal(url);
         }
-      });
-      authWindow.loadURL(url);
-      authWindow.show();
-      authWindow.webContents.on("will-navigate", (event, newUrl) => {
-        if (newUrl.startsWith("aussievault://callback")) {
-          console.log("OAuth Callback URL:", newUrl);
-          authWindow.close();
-          event.preventDefault();
-        }
-      });
-      authWindow.webContents.on("did-redirect-navigation", (event, newUrl) => {
-        if (newUrl.startsWith("aussievault://callback")) {
-          console.log("OAuth Callback URL (redirect):", newUrl);
-          authWindow.close();
-          event.preventDefault();
-        }
-      });
+      } else {
+        shell.openExternal(url);
+      }
       return { action: "deny" };
     }
+    if (urlLower.startsWith("https://")) {
+      console.log("🔗 HTTPS popup allowed in new window:", url);
+      return { action: "allow" };
+    }
+    console.log("🚫 Popup blocked for security:", url);
     return { action: "deny" };
   });
   newWindow.webContents.on("before-input-event", (event, input) => {
     if (input.type === "keyDown" && (input.modifiers.includes("control") || input.modifiers.includes("meta"))) {
       const key = input.key.toLowerCase();
-      const criticalShortcuts = ["t", "n", "w", "r", "h", "j", "=", "+", "-", "_", "0"];
+      const criticalShortcuts = [
+        "t",
+        "n",
+        "w",
+        "r",
+        "h",
+        "j",
+        "=",
+        "+",
+        "-",
+        "_",
+        "0"
+      ];
       const isShiftShortcut = input.modifiers.includes("shift") && ["o", "i", "t"].includes(key);
       if (criticalShortcuts.includes(key) || isShiftShortcut) {
         event.preventDefault();
@@ -4646,7 +4768,9 @@ ipcMain.handle("sharepoint-get-oauth-token", async () => {
         errorDetails = `${errorData.error}: ${errorData.error_description}`;
       } catch {
       }
-      throw new Error(`OAuth failed: ${response.status} ${response.statusText} - ${errorDetails}`);
+      throw new Error(
+        `OAuth failed: ${response.status} ${response.statusText} - ${errorDetails}`
+      );
     }
   } catch (error) {
     return {
@@ -4655,44 +4779,54 @@ ipcMain.handle("sharepoint-get-oauth-token", async () => {
     };
   }
 });
-ipcMain.handle("sharepoint-graph-request", async (_, { endpoint, accessToken }) => {
-  var _a, _b;
-  try {
-    const response = await fetch(`https://graph.microsoft.com/v1.0${endpoint}`, {
-      headers: {
-        "Authorization": `Bearer ${accessToken}`,
-        "Accept": "application/json"
+ipcMain.handle(
+  "sharepoint-graph-request",
+  async (_, { endpoint, accessToken }) => {
+    var _a, _b;
+    try {
+      const response = await fetch(
+        `https://graph.microsoft.com/v1.0${endpoint}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: "application/json"
+          }
+        }
+      );
+      const responseText = await response.text();
+      if (response.ok) {
+        const data = JSON.parse(responseText);
+        return {
+          success: true,
+          data
+        };
+      } else {
+        let errorDetails = responseText;
+        try {
+          const errorData = JSON.parse(responseText);
+          errorDetails = `${(_a = errorData.error) == null ? void 0 : _a.code}: ${(_b = errorData.error) == null ? void 0 : _b.message}`;
+        } catch {
+        }
+        console.error(
+          "❌ Graph API failed:",
+          response.status,
+          response.statusText
+        );
+        console.error("📄 Error details:", errorDetails);
+        return {
+          success: false,
+          error: `Graph API failed: ${response.status} ${response.statusText} - ${errorDetails}`
+        };
       }
-    });
-    const responseText = await response.text();
-    if (response.ok) {
-      const data = JSON.parse(responseText);
-      return {
-        success: true,
-        data
-      };
-    } else {
-      let errorDetails = responseText;
-      try {
-        const errorData = JSON.parse(responseText);
-        errorDetails = `${(_a = errorData.error) == null ? void 0 : _a.code}: ${(_b = errorData.error) == null ? void 0 : _b.message}`;
-      } catch {
-      }
-      console.error("❌ Graph API failed:", response.status, response.statusText);
-      console.error("📄 Error details:", errorDetails);
+    } catch (error) {
+      console.error("❌ Error in sharepoint-graph-request:", error);
       return {
         success: false,
-        error: `Graph API failed: ${response.status} ${response.statusText} - ${errorDetails}`
+        error: error instanceof Error ? error.message : "Network error"
       };
     }
-  } catch (error) {
-    console.error("❌ Error in sharepoint-graph-request:", error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Network error"
-    };
   }
-});
+);
 ipcMain.handle("system-get-version", () => {
   return app.getVersion();
 });
@@ -4775,25 +4909,96 @@ ipcMain.handle("vpn-disconnect", async () => {
     return false;
   }
 });
-ipcMain.handle("vpn-check-ip", async () => {
-  try {
-    const psCommand = `(Invoke-WebRequest -Uri "${IP_GEOLOCATION_API}" -UseBasicParsing).Content | ConvertFrom-Json | ConvertTo-Json -Compress`;
-    return new Promise((resolve) => {
-      const psProcess = spawn("powershell", ["-Command", psCommand], {
-        stdio: ["pipe", "pipe", "pipe"]
-      });
-      let output = "";
-      psProcess.stdout.on("data", (data) => {
-        output += data.toString();
-      });
-      psProcess.on("exit", (code) => {
-        try {
-          if (code !== 0 || !output.trim()) {
-            console.log("🔧 PowerShell command failed, trying simpler IP check...");
+ipcMain.handle(
+  "vpn-check-ip",
+  async () => {
+    try {
+      const psCommand = `(Invoke-WebRequest -Uri "${IP_GEOLOCATION_API}" -UseBasicParsing).Content | ConvertFrom-Json | ConvertTo-Json -Compress`;
+      return new Promise((resolve) => {
+        const psProcess = spawn("powershell", ["-Command", psCommand], {
+          stdio: ["pipe", "pipe", "pipe"]
+        });
+        let output = "";
+        psProcess.stdout.on("data", (data) => {
+          output += data.toString();
+        });
+        psProcess.on("exit", (code) => {
+          try {
+            if (code !== 0 || !output.trim()) {
+              console.log(
+                "🔧 PowerShell command failed, trying simpler IP check..."
+              );
+              const simpleCommand = `(Invoke-WebRequest -Uri "https://ipinfo.io/ip" -UseBasicParsing).Content.Trim()`;
+              const fallbackProcess = spawn(
+                "powershell",
+                ["-Command", simpleCommand],
+                {
+                  stdio: ["pipe", "pipe", "pipe"]
+                }
+              );
+              let fallbackOutput = "";
+              fallbackProcess.stdout.on("data", (data) => {
+                fallbackOutput += data.toString();
+              });
+              fallbackProcess.on("exit", () => {
+                const realIP = fallbackOutput.trim();
+                if (realIP && realIP.match(/^\d+\.\d+\.\d+\.\d+$/)) {
+                  console.log(`🔍 Got real IP via fallback: ${realIP}`);
+                  resolve({
+                    ip: realIP,
+                    country: "AU",
+                    // Assume AU since you're using the app
+                    countryName: "Australia",
+                    region: "NSW",
+                    city: "Sydney",
+                    isAustralia: true
+                  });
+                } else {
+                  resolve({
+                    ip: "Unknown",
+                    country: "Unknown",
+                    countryName: "Unknown",
+                    region: "Unknown",
+                    city: "Unknown",
+                    isAustralia: false
+                  });
+                }
+              });
+              fallbackProcess.on("error", () => {
+                resolve({
+                  ip: "Unknown",
+                  country: "Unknown",
+                  countryName: "Unknown",
+                  region: "Unknown",
+                  city: "Unknown",
+                  isAustralia: false
+                });
+              });
+              return;
+            }
+            const ipInfo = JSON.parse(output.trim());
+            const result = {
+              ip: ipInfo.ip || "Unknown",
+              country: ipInfo.country || "Unknown",
+              countryName: isAustralianCountry(ipInfo.country) ? "Australia" : ipInfo.country || "Unknown",
+              region: ipInfo.region || "Unknown",
+              city: ipInfo.city || "Unknown",
+              isAustralia: isAustralianCountry(ipInfo.country)
+            };
+            console.log(
+              `🔍 Real IP check result: ${result.ip} (${result.city}, ${result.countryName})`
+            );
+            resolve(result);
+          } catch (_error) {
+            console.log("🔧 Failed to parse IP info, trying simpler check...");
             const simpleCommand = `(Invoke-WebRequest -Uri "https://ipinfo.io/ip" -UseBasicParsing).Content.Trim()`;
-            const fallbackProcess = spawn("powershell", ["-Command", simpleCommand], {
-              stdio: ["pipe", "pipe", "pipe"]
-            });
+            const fallbackProcess = spawn(
+              "powershell",
+              ["-Command", simpleCommand],
+              {
+                stdio: ["pipe", "pipe", "pipe"]
+              }
+            );
             let fallbackOutput = "";
             fallbackProcess.stdout.on("data", (data) => {
               fallbackOutput += data.toString();
@@ -4801,7 +5006,7 @@ ipcMain.handle("vpn-check-ip", async () => {
             fallbackProcess.on("exit", () => {
               const realIP = fallbackOutput.trim();
               if (realIP && realIP.match(/^\d+\.\d+\.\d+\.\d+$/)) {
-                console.log(`🔍 Got real IP via fallback: ${realIP}`);
+                console.log(`🔍 Got real IP via final fallback: ${realIP}`);
                 resolve({
                   ip: realIP,
                   country: "AU",
@@ -4822,47 +5027,27 @@ ipcMain.handle("vpn-check-ip", async () => {
                 });
               }
             });
-            fallbackProcess.on("error", () => {
-              resolve({
-                ip: "Unknown",
-                country: "Unknown",
-                countryName: "Unknown",
-                region: "Unknown",
-                city: "Unknown",
-                isAustralia: false
-              });
-            });
-            return;
           }
-          const ipInfo = JSON.parse(output.trim());
-          const result = {
-            ip: ipInfo.ip || "Unknown",
-            country: ipInfo.country || "Unknown",
-            countryName: isAustralianCountry(ipInfo.country) ? "Australia" : ipInfo.country || "Unknown",
-            region: ipInfo.region || "Unknown",
-            city: ipInfo.city || "Unknown",
-            isAustralia: isAustralianCountry(ipInfo.country)
-          };
-          console.log(`🔍 Real IP check result: ${result.ip} (${result.city}, ${result.countryName})`);
-          resolve(result);
-        } catch (_error) {
-          console.log("🔧 Failed to parse IP info, trying simpler check...");
-          const simpleCommand = `(Invoke-WebRequest -Uri "https://ipinfo.io/ip" -UseBasicParsing).Content.Trim()`;
-          const fallbackProcess = spawn("powershell", ["-Command", simpleCommand], {
+        });
+        psProcess.on("error", (_error) => {
+          console.log(
+            "🔧 IP check process error, trying alternative method..."
+          );
+          const altCommand = `(Invoke-WebRequest -Uri "https://api.ipify.org" -UseBasicParsing).Content`;
+          const altProcess = spawn("powershell", ["-Command", altCommand], {
             stdio: ["pipe", "pipe", "pipe"]
           });
-          let fallbackOutput = "";
-          fallbackProcess.stdout.on("data", (data) => {
-            fallbackOutput += data.toString();
+          let altOutput = "";
+          altProcess.stdout.on("data", (data) => {
+            altOutput += data.toString();
           });
-          fallbackProcess.on("exit", () => {
-            const realIP = fallbackOutput.trim();
+          altProcess.on("exit", () => {
+            const realIP = altOutput.trim();
             if (realIP && realIP.match(/^\d+\.\d+\.\d+\.\d+$/)) {
-              console.log(`🔍 Got real IP via final fallback: ${realIP}`);
+              console.log(`🔍 Got real IP via alternative method: ${realIP}`);
               resolve({
                 ip: realIP,
                 country: "AU",
-                // Assume AU since you're using the app
                 countryName: "Australia",
                 region: "NSW",
                 city: "Sydney",
@@ -4879,31 +5064,7 @@ ipcMain.handle("vpn-check-ip", async () => {
               });
             }
           });
-        }
-      });
-      psProcess.on("error", (_error) => {
-        console.log("🔧 IP check process error, trying alternative method...");
-        const altCommand = `(Invoke-WebRequest -Uri "https://api.ipify.org" -UseBasicParsing).Content`;
-        const altProcess = spawn("powershell", ["-Command", altCommand], {
-          stdio: ["pipe", "pipe", "pipe"]
-        });
-        let altOutput = "";
-        altProcess.stdout.on("data", (data) => {
-          altOutput += data.toString();
-        });
-        altProcess.on("exit", () => {
-          const realIP = altOutput.trim();
-          if (realIP && realIP.match(/^\d+\.\d+\.\d+\.\d+$/)) {
-            console.log(`🔍 Got real IP via alternative method: ${realIP}`);
-            resolve({
-              ip: realIP,
-              country: "AU",
-              countryName: "Australia",
-              region: "NSW",
-              city: "Sydney",
-              isAustralia: true
-            });
-          } else {
+          altProcess.on("error", () => {
             resolve({
               ip: "Unknown",
               country: "Unknown",
@@ -4912,43 +5073,45 @@ ipcMain.handle("vpn-check-ip", async () => {
               city: "Unknown",
               isAustralia: false
             });
-          }
-        });
-        altProcess.on("error", () => {
-          resolve({
-            ip: "Unknown",
-            country: "Unknown",
-            countryName: "Unknown",
-            region: "Unknown",
-            city: "Unknown",
-            isAustralia: false
           });
         });
-      });
-      setTimeout(() => {
-        psProcess.kill();
-        console.log("🔧 IP check timed out, using final fallback...");
-        const finalCommand = `(Invoke-WebRequest -Uri "https://checkip.amazonaws.com" -UseBasicParsing).Content.Trim()`;
-        const finalProcess = spawn("powershell", ["-Command", finalCommand], {
-          stdio: ["pipe", "pipe", "pipe"]
-        });
-        let finalOutput = "";
-        finalProcess.stdout.on("data", (data) => {
-          finalOutput += data.toString();
-        });
-        finalProcess.on("exit", () => {
-          const realIP = finalOutput.trim();
-          if (realIP && realIP.match(/^\d+\.\d+\.\d+\.\d+$/)) {
-            console.log(`🔍 Got real IP via final timeout fallback: ${realIP}`);
-            resolve({
-              ip: realIP,
-              country: "AU",
-              countryName: "Australia",
-              region: "NSW",
-              city: "Sydney",
-              isAustralia: true
-            });
-          } else {
+        setTimeout(() => {
+          psProcess.kill();
+          console.log("🔧 IP check timed out, using final fallback...");
+          const finalCommand = `(Invoke-WebRequest -Uri "https://checkip.amazonaws.com" -UseBasicParsing).Content.Trim()`;
+          const finalProcess = spawn("powershell", ["-Command", finalCommand], {
+            stdio: ["pipe", "pipe", "pipe"]
+          });
+          let finalOutput = "";
+          finalProcess.stdout.on("data", (data) => {
+            finalOutput += data.toString();
+          });
+          finalProcess.on("exit", () => {
+            const realIP = finalOutput.trim();
+            if (realIP && realIP.match(/^\d+\.\d+\.\d+\.\d+$/)) {
+              console.log(
+                `🔍 Got real IP via final timeout fallback: ${realIP}`
+              );
+              resolve({
+                ip: realIP,
+                country: "AU",
+                countryName: "Australia",
+                region: "NSW",
+                city: "Sydney",
+                isAustralia: true
+              });
+            } else {
+              resolve({
+                ip: "Unknown",
+                country: "Unknown",
+                countryName: "Unknown",
+                region: "Unknown",
+                city: "Unknown",
+                isAustralia: false
+              });
+            }
+          });
+          finalProcess.on("error", () => {
             resolve({
               ip: "Unknown",
               country: "Unknown",
@@ -4957,40 +5120,37 @@ ipcMain.handle("vpn-check-ip", async () => {
               city: "Unknown",
               isAustralia: false
             });
-          }
-        });
-        finalProcess.on("error", () => {
-          resolve({
-            ip: "Unknown",
-            country: "Unknown",
-            countryName: "Unknown",
-            region: "Unknown",
-            city: "Unknown",
-            isAustralia: false
           });
-        });
-      }, VPN_CHECK_TIMEOUT);
-    });
-  } catch (_error) {
-    console.log("🔧 IP check failed, assuming Australian for development");
-    return true;
+        }, VPN_CHECK_TIMEOUT);
+      });
+    } catch (_error) {
+      console.log("🔧 IP check failed, assuming Australian for development");
+      return true;
+    }
   }
-});
+);
 const get1PasswordSecret = async (itemId) => {
   const serviceAccountToken = process.env.OP_SERVICE_ACCOUNT_TOKEN;
   if (!serviceAccountToken) {
-    throw new Error("1Password Service Account not configured. Set OP_SERVICE_ACCOUNT_TOKEN environment variable.");
+    throw new Error(
+      "1Password Service Account not configured. Set OP_SERVICE_ACCOUNT_TOKEN environment variable."
+    );
   }
   try {
-    const response = await fetch(`https://my.1password.com/api/v1/items/${itemId}`, {
-      method: "GET",
-      headers: {
-        "Authorization": `Bearer ${serviceAccountToken}`,
-        "Content-Type": "application/json"
+    const response = await fetch(
+      `https://my.1password.com/api/v1/items/${itemId}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${serviceAccountToken}`,
+          "Content-Type": "application/json"
+        }
       }
-    });
+    );
     if (!response.ok) {
-      throw new Error(`1Password Service Account API error: ${response.status} ${response.statusText}`);
+      throw new Error(
+        `1Password Service Account API error: ${response.status} ${response.statusText}`
+      );
     }
     const item = await response.json();
     const secrets = {};
@@ -5027,7 +5187,9 @@ const get1PasswordSecret = async (itemId) => {
     }
     return secrets;
   } catch (error) {
-    throw new Error(`Failed to retrieve 1Password secret: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `Failed to retrieve 1Password secret: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 };
 ipcMain.handle("vault-get-sharepoint-credentials", async () => {
@@ -5057,7 +5219,9 @@ ipcMain.handle("vault-get-sharepoint-credentials", async () => {
       };
     }
   } catch (error) {
-    throw new Error(`Vault credentials unavailable: ${error instanceof Error ? error.message : "Unknown error"}`);
+    throw new Error(
+      `Vault credentials unavailable: ${error instanceof Error ? error.message : "Unknown error"}`
+    );
   }
 });
 ipcMain.handle("vault-rotate-credentials", async () => {
@@ -5086,13 +5250,16 @@ ipcMain.handle("vault-get-status", async () => {
       if (!itemId) {
         return "error: SharePoint Item ID not configured";
       }
-      const response = await fetch(`https://my.1password.com/api/v1/items/${itemId}`, {
-        method: "GET",
-        headers: {
-          "Authorization": `Bearer ${serviceAccountToken}`,
-          "Content-Type": "application/json"
+      const response = await fetch(
+        `https://my.1password.com/api/v1/items/${itemId}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${serviceAccountToken}`,
+            "Content-Type": "application/json"
+          }
         }
-      });
+      );
       if (response.ok) {
         return "connected";
       } else {
@@ -5105,13 +5272,22 @@ ipcMain.handle("vault-get-status", async () => {
     return `error: ${error instanceof Error ? error.message : "Unknown error"}`;
   }
 });
-ipcMain.handle("security-check-url", async (_event, _url, _accessLevel) => {
-  return true;
-});
-ipcMain.handle("security-log-navigation", async (_event, _url, _allowed, _accessLevel) => {
-});
-ipcMain.handle("security-prevent-download", async (_event, _filename) => {
-});
+ipcMain.handle(
+  "security-check-url",
+  async (_event, _url, _accessLevel) => {
+    return true;
+  }
+);
+ipcMain.handle(
+  "security-log-navigation",
+  async (_event, _url, _allowed, _accessLevel) => {
+  }
+);
+ipcMain.handle(
+  "security-prevent-download",
+  async (_event, _filename) => {
+  }
+);
 ipcMain.handle("download-choose-local", async (_event, downloadId) => {
   const pendingDownload = pendingDownloads.get(downloadId);
   if (pendingDownload) {
@@ -5163,14 +5339,17 @@ ipcMain.handle("shell-open-path", async (_event, filePath) => {
     return error instanceof Error ? error.message : "Unknown error";
   }
 });
-ipcMain.handle("shell-show-item-in-folder", async (_event, filePath) => {
-  try {
-    shell.showItemInFolder(filePath);
-    return null;
-  } catch (error) {
-    return error instanceof Error ? error.message : "Unknown error";
+ipcMain.handle(
+  "shell-show-item-in-folder",
+  async (_event, filePath) => {
+    try {
+      shell.showItemInFolder(filePath);
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : "Unknown error";
+    }
   }
-});
+);
 ipcMain.handle("save-page-as-pdf", async (_event) => {
   try {
     const { dialog } = require("electron");
@@ -5182,9 +5361,7 @@ ipcMain.handle("save-page-as-pdf", async (_event) => {
     const result = await dialog.showSaveDialog(focusedWindow, {
       title: "Save page as PDF",
       defaultPath: "page.pdf",
-      filters: [
-        { name: "PDF Files", extensions: ["pdf"] }
-      ]
+      filters: [{ name: "PDF Files", extensions: ["pdf"] }]
     });
     if (result.canceled) {
       return { success: false, error: "User canceled" };
@@ -5251,9 +5428,12 @@ ipcMain.handle("extension-install-1password", async () => {
     webStoreUrl: "https://chromewebstore.google.com/detail/1password-%E2%80%93-password-mana/aeblfdkhhhdcdjpifhhbdiojplfjncoa"
   };
 });
-ipcMain.handle("sharepoint-inject-credentials", async (_event, _webviewId) => {
-  return true;
-});
+ipcMain.handle(
+  "sharepoint-inject-credentials",
+  async (_event, _webviewId) => {
+    return true;
+  }
+);
 ipcMain.handle("sharepoint-get-config", async () => {
   return {
     tenantUrl: process.env.SHAREPOINT_TENANT_URL || "https://your-tenant.sharepoint.com",
@@ -5338,13 +5518,20 @@ ipcMain.handle("context-menu-show", async (event, params) => {
         {
           label: vpnConnected ? "Reconnect VPN" : "Connect VPN",
           click: () => {
-            senderWindow.webContents.send("context-menu-action", "reconnect-vpn");
+            senderWindow.webContents.send(
+              "context-menu-action",
+              "reconnect-vpn"
+            );
           }
         }
       ]
     }
   ];
-  const contextMenu = Menu.buildFromTemplate([...baseMenu, ...vpnMenu, ...statusMenu]);
+  const contextMenu = Menu.buildFromTemplate([
+    ...baseMenu,
+    ...vpnMenu,
+    ...statusMenu
+  ]);
   contextMenu.popup({
     window: senderWindow,
     x: params.x,
@@ -5388,14 +5575,17 @@ app.whenReady().then(async () => {
   }
   await loadEnvironmentVariables();
   configureSecureSession();
-  app.on("certificate-error", (event, _webContents, _url, _error, _certificate, callback) => {
-    if (process.env.NODE_ENV === "development" || process.env.IGNORE_CERTIFICATE_ERRORS === "true") {
-      event.preventDefault();
-      callback(true);
-    } else {
-      callback(false);
+  app.on(
+    "certificate-error",
+    (event, _webContents, _url, _error, _certificate, callback) => {
+      if (process.env.NODE_ENV === "development" || process.env.IGNORE_CERTIFICATE_ERRORS === "true") {
+        event.preventDefault();
+        callback(true);
+      } else {
+        callback(false);
+      }
     }
-  });
+  );
   console.log("🔌 Starting VPN connection...");
   const vpnConnected2 = await connectVPN();
   updateVPNStatus(vpnConnected2);
@@ -5428,16 +5618,86 @@ app.on("activate", () => {
   }
 });
 app.on("web-contents-created", (_event, contents) => {
+  const isOAuthUrl = (url) => {
+    if (!url) return false;
+    const urlLower = url.toLowerCase();
+    const directOAuthUrls = [
+      "accounts.google.com",
+      "login.microsoftonline.com",
+      "login.live.com",
+      "oauth.live.com",
+      "github.com/login",
+      "facebook.com/login",
+      "twitter.com/oauth",
+      "linkedin.com/oauth"
+    ];
+    const oauthPatterns = [
+      "/oauth/",
+      "/auth/",
+      "/login/",
+      "/signin/",
+      "/sso/",
+      "/openid/",
+      "oauth2",
+      "openid_connect",
+      "client_id=",
+      "response_type=",
+      "redirect_uri=",
+      "scope=",
+      "state=",
+      "code_challenge=",
+      "nonce="
+    ];
+    const socialLoginPatterns = [
+      "google",
+      "microsoft",
+      "facebook",
+      "twitter",
+      "github",
+      "linkedin"
+    ];
+    if (directOAuthUrls.some((provider) => urlLower.includes(provider))) {
+      return true;
+    }
+    if (oauthPatterns.some((pattern) => urlLower.includes(pattern))) {
+      return true;
+    }
+    const hasSocialProvider = socialLoginPatterns.some(
+      (social) => urlLower.includes(social)
+    );
+    const hasAuthPattern = ["login", "auth", "signin", "sso"].some(
+      (auth) => urlLower.includes(auth)
+    );
+    if (hasSocialProvider && hasAuthPattern) {
+      return true;
+    }
+    return false;
+  };
+  contents.setWindowOpenHandler((details) => {
+    const { url } = details;
+    if (isOAuthUrl(url)) {
+      console.log(
+        "🔐 [setWindowOpenHandler] OAuth popup detected - opening externally:",
+        url
+      );
+      shell.openExternal(url);
+      return { action: "deny" };
+    }
+    if (url.toLowerCase().startsWith("https://")) {
+      console.log("🔗 [setWindowOpenHandler] HTTPS popup allowed:", url);
+      return { action: "allow" };
+    }
+    console.log("� [setWindowOpenHandler] Popup blocked for security:", url);
+    return { action: "deny" };
+  });
   contents.on("will-navigate", (event, navigationUrl) => {
     try {
       const isMainWindowContents = mainWindow && !mainWindow.isDestroyed() && contents === mainWindow.webContents;
       if (isMainWindowContents) {
         const parsedUrl = new URL(navigationUrl);
-        const allowedOrigins = [
-          VITE_DEV_SERVER_URL,
-          "file:",
-          "about:"
-        ].filter(Boolean);
+        const allowedOrigins = [VITE_DEV_SERVER_URL, "file:", "about:"].filter(
+          Boolean
+        );
         const oauthProviders = [
           "https://accounts.google.com",
           "https://login.microsoftonline.com",
@@ -5449,30 +5709,20 @@ app.on("web-contents-created", (_event, contents) => {
         ];
         const isAllowed = allowedOrigins.some(
           (origin) => parsedUrl.protocol.startsWith(origin || "") || navigationUrl.startsWith(origin || "")
-        ) || oauthProviders.some(
-          (provider) => navigationUrl.startsWith(provider)
-        );
+        ) || oauthProviders.some((provider) => navigationUrl.startsWith(provider));
         if (!isAllowed) {
           event.preventDefault();
         } else if (oauthProviders.some((provider) => navigationUrl.startsWith(provider))) {
         }
       } else {
-        const externalAuthPatterns = [
-          "accounts.google.com/signin",
-          "accounts.google.com/oauth",
-          "login.microsoftonline.com",
-          "/oauth/authorize",
-          "/auth/login",
-          "oauth.live.com"
-        ];
-        const shouldOpenExternally = externalAuthPatterns.some(
-          (pattern) => navigationUrl.toLowerCase().includes(pattern)
-        );
-        if (shouldOpenExternally) {
-          console.log("🔐 Intercepting OAuth flow - opening in system browser:", navigationUrl);
+        if (isOAuthUrl(navigationUrl)) {
+          console.log(
+            "🔐 [will-navigate] OAuth flow detected - opening externally:",
+            navigationUrl
+          );
           event.preventDefault();
           shell.openExternal(navigationUrl);
-        } else {
+          return;
         }
       }
     } catch (error) {
@@ -5490,41 +5740,53 @@ ipcMain.handle("open-external-auth", async (_event, url) => {
     return { success: true };
   } catch (error) {
     console.error("❌ Failed to open external auth URL:", error);
-    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
   }
 });
-ipcMain.handle("sharepoint-prepare-temp-file", async (event, { data, filename }) => {
-  try {
-    const tempDir = path.join(app.getPath("temp"), "secure-browser-dnd");
-    await promises.mkdir(tempDir, { recursive: true });
-    const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const tempPath = path.join(tempDir, `${Date.now()}_${safeName}`);
-    console.log(`📝 Writing file content to temp path: ${tempPath}`);
-    console.log(`📦 File size: ${data.byteLength} bytes`);
-    const buffer = Buffer.from(data);
-    await promises.writeFile(tempPath, buffer);
-    const stats = await promises.stat(tempPath);
-    console.log(`✅ File written successfully: ${stats.size} bytes`);
-    setTimeout(async () => {
-      try {
-        await promises.unlink(tempPath);
-        console.log(`🧹 Cleaned up temp file: ${tempPath}`);
-      } catch (cleanupError) {
-        console.warn(`⚠️ Failed to cleanup temp file: ${cleanupError}`);
-      }
-    }, 3e5);
-    return { success: true, path: tempPath };
-  } catch (err) {
-    console.error("❌ Failed to prepare temp file:", err);
-    return { success: false, error: err instanceof Error ? err.message : "Unknown error" };
+ipcMain.handle(
+  "sharepoint-prepare-temp-file",
+  async (event, { data, filename }) => {
+    try {
+      const tempDir = path.join(app.getPath("temp"), "secure-browser-dnd");
+      await promises.mkdir(tempDir, { recursive: true });
+      const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const tempPath = path.join(tempDir, `${Date.now()}_${safeName}`);
+      console.log(`📝 Writing file content to temp path: ${tempPath}`);
+      console.log(`📦 File size: ${data.byteLength} bytes`);
+      const buffer = Buffer.from(data);
+      await promises.writeFile(tempPath, buffer);
+      const stats = await promises.stat(tempPath);
+      console.log(`✅ File written successfully: ${stats.size} bytes`);
+      setTimeout(async () => {
+        try {
+          await promises.unlink(tempPath);
+          console.log(`🧹 Cleaned up temp file: ${tempPath}`);
+        } catch (cleanupError) {
+          console.warn(`⚠️ Failed to cleanup temp file: ${cleanupError}`);
+        }
+      }, 3e5);
+      return { success: true, path: tempPath };
+    } catch (err) {
+      console.error("❌ Failed to prepare temp file:", err);
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : "Unknown error"
+      };
+    }
   }
-});
+);
 ipcMain.on("sharepoint-start-drag", (event, { filePath }) => {
   try {
     console.log(`🚀 Starting native drag for file: ${filePath}`);
     event.sender.startDrag({
       file: filePath,
-      icon: path.join(process.env.VITE_PUBLIC, "assets/aussie-browser-logo-32.png")
+      icon: path.join(
+        process.env.VITE_PUBLIC,
+        "assets/aussie-browser-logo-32.png"
+      )
     });
     console.log(`✅ Native drag started successfully`);
   } catch (err) {
@@ -5533,7 +5795,9 @@ ipcMain.on("sharepoint-start-drag", (event, { filePath }) => {
 });
 if (process.defaultApp) {
   if (process.argv.length >= 2) {
-    app.setAsDefaultProtocolClient("secure-browser", process.execPath, [path.resolve(process.argv[1])]);
+    app.setAsDefaultProtocolClient("secure-browser", process.execPath, [
+      path.resolve(process.argv[1])
+    ]);
   }
 } else {
   app.setAsDefaultProtocolClient("secure-browser");
@@ -5546,53 +5810,87 @@ process.on("SIGTERM", () => {
 });
 app.setAsDefaultProtocolClient("aussievault");
 const exchangeCodeForToken = async (code) => {
+  const codeVerifier = global.pkceCodeVerifier;
+  if (!codeVerifier) {
+    console.error("PKCE code verifier not found.");
+    throw new Error("PKCE code verifier not found.");
+  }
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       code,
       client_id: process.env.GOOGLE_CLIENT_ID || "YOUR_CLIENT_ID",
-      client_secret: process.env.GOOGLE_CLIENT_SECRET || "YOUR_CLIENT_SECRET",
       redirect_uri: "aussievault://callback",
-      grant_type: "authorization_code"
+      grant_type: "authorization_code",
+      code_verifier: codeVerifier
     })
   });
   return response.json();
 };
 app.on("open-url", (event, url) => {
   event.preventDefault();
-  const authCode = new URL(url).searchParams.get("code");
+  console.log("Received OAuth callback URL:", url);
+  const urlObj = new URL(url);
+  const authCode = urlObj.searchParams.get("code");
+  const error = urlObj.searchParams.get("error");
   if (authCode) {
+    console.log("OAuth Authorization Code:", authCode);
     exchangeCodeForToken(authCode).then(async (tokens) => {
-      const userResponse = await fetch(`https://www.googleapis.com/oauth2/v1/userinfo?access_token=${tokens.access_token}`);
+      const userResponse = await fetch(
+        `https://www.googleapis.com/oauth2/v1/userinfo?access_token=${tokens.access_token}`
+      );
       const userInfo = await userResponse.json();
-      windows.forEach((win) => {
-        win.webContents.send("google-signin-success", userInfo);
-      });
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("google-signin-success", userInfo);
+      }
     }).catch((err) => {
       console.error("Error exchanging code:", err);
+      if (mainWindow) {
+        mainWindow.webContents.send("oauth-error", err.message);
+      }
     });
+  } else if (error) {
+    console.error("OAuth Error:", error);
+    if (mainWindow) {
+      mainWindow.webContents.send("oauth-error", error);
+    }
   }
 });
 app.on("second-instance", (event, argv) => {
   const url = argv.find((arg) => arg.startsWith("aussievault://"));
   if (url) {
-    const authCode = new URL(url).searchParams.get("code");
+    const urlObj = new URL(url);
+    const authCode = urlObj.searchParams.get("code");
+    const error = urlObj.searchParams.get("error");
     if (authCode) {
+      console.log("OAuth Authorization Code (second-instance):", authCode);
       exchangeCodeForToken(authCode).then(async (tokens) => {
-        const userResponse = await fetch(`https://www.googleapis.com/oauth2/v1/userinfo?access_token=${tokens.access_token}`);
+        const userResponse = await fetch(
+          `https://www.googleapis.com/oauth2/v1/userinfo?access_token=${tokens.access_token}`
+        );
         const userInfo = await userResponse.json();
-        windows.forEach((win) => {
-          win.webContents.send("google-signin-success", userInfo);
-        });
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("google-signin-success", userInfo);
+        }
       }).catch((err) => {
         console.error("Error exchanging code:", err);
+        if (mainWindow) {
+          mainWindow.webContents.send("oauth-error", err.message);
+        }
       });
+    } else if (error) {
+      console.error("OAuth Error (second-instance):", error);
+      if (mainWindow) {
+        mainWindow.webContents.send("oauth-error", error);
+      }
     }
   }
 });
 ipcMain.on("start-google-signin", () => {
-  const signInUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID || "YOUR_CLIENT_ID"}&amp;redirect_uri=aussievault://callback&amp;response_type=code&amp;scope=profile%20email`;
+  const { codeVerifier, codeChallenge } = generatePKCECodes();
+  global.pkceCodeVerifier = codeVerifier;
+  const signInUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID || "YOUR_CLIENT_ID"}&redirect_uri=aussievault://callback&response_type=code&scope=profile%20email&code_challenge=${codeChallenge}&code_challenge_method=S256`;
   shell.openExternal(signInUrl);
 });
 export {

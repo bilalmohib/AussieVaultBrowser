@@ -2581,77 +2581,196 @@ app.on('activate', () => {
 
 // Security: Prevent navigation to external websites in main window only (not webviews)
 app.on('web-contents-created', (_event, contents) => {
-      contents.on('will-navigate', (event, navigationUrl) => {
-      try {
-        // Check if this is the main window's webContents
-        const isMainWindowContents = mainWindow && !mainWindow.isDestroyed() && contents === mainWindow.webContents;
-        
-        if (isMainWindowContents) {
-          const parsedUrl = new URL(navigationUrl)
-          
-          // Allow navigation within the app and to OAuth providers for main window
-          const allowedOrigins = [
-            VITE_DEV_SERVER_URL,
-            'file:',
-            'about:'
-          ].filter(Boolean)
-          
-          // Allow Clerk OAuth and common OAuth providers
-          const oauthProviders = [
-            'https://accounts.google.com',
-            'https://login.microsoftonline.com',
-            'https://github.com/login',
-            'https://clerk.shared.lcl.dev',
-            'https://api.clerk.dev',
-            'https://clerk.dev',
-            'https://major-snipe-9.clerk.accounts.dev'
-          ]
-          
-          const isAllowed = allowedOrigins.some(origin => 
-            parsedUrl.protocol.startsWith(origin || '') || 
-            navigationUrl.startsWith(origin || '')
-          ) || oauthProviders.some(provider => 
-            navigationUrl.startsWith(provider)
-          )
-          
-          if (!isAllowed) {
-            // console.log('🚫 Blocking main window navigation to:', navigationUrl)
-            event.preventDefault()
-          } else if (oauthProviders.some(provider => navigationUrl.startsWith(provider))) {
-            // console.log('🔐 Allowing OAuth navigation to:', navigationUrl)
-          }
-        } else {
-          // This is a webview - check for OAuth flows that should open externally
-          const externalAuthPatterns = [
-            'accounts.google.com/signin',
-            'accounts.google.com/oauth',
-            'login.microsoftonline.com',
-            '/oauth/authorize',
-            '/auth/login',
-            'oauth.live.com'
-          ];
-          
-          const shouldOpenExternally = externalAuthPatterns.some(pattern => 
-            navigationUrl.toLowerCase().includes(pattern)
-          );
-          
-          if (shouldOpenExternally) {
-            console.log('🔐 Intercepting OAuth flow - opening in system browser:', navigationUrl);
-            event.preventDefault();
-            shell.openExternal(navigationUrl);
-          } else {
-            // console.log('🌐 Webview navigation allowed:', navigationUrl)
-          }
+  // Helper function to check if URL is Google OAuth
+  const isGoogleAuthUrl = (url: string): boolean => {
+    if (!url.includes('accounts.google.com')) return false;
+    
+    // Check for any Google auth-related paths
+    const authPaths = [
+      '/signin',
+      '/oauth',
+      '/o/oauth2', 
+      '/ServiceLogin',
+      '/v3/signin',
+      '/identifier',
+      '/gsi'
+    ];
+    
+    return authPaths.some(path => url.includes(path));
+  };
+
+  // Intercept BEFORE navigation starts
+  contents.on('did-start-navigation', (event, url, isInPlace, isMainFrame) => {
+    const isMainWindowContents = mainWindow && !mainWindow.isDestroyed() && contents === mainWindow.webContents;
+    
+    if (!isMainWindowContents && isMainFrame && isGoogleAuthUrl(url)) {
+      console.log('🔐 [did-start-navigation] Blocking Google auth - will open externally:', url);
+      
+      // Navigate to a safe blank page instead of stopping
+      contents.loadURL('about:blank').then(() => {
+        console.log('✅ Redirected to blank page');
+      }).catch((err) => {
+        console.warn('⚠️ Could not redirect:', err);
+      });
+      
+      // Open in external browser immediately
+      shell.openExternal(url).then(() => {
+        console.log('✅ Successfully opened Google auth in external browser');
+      }).catch((error) => {
+        console.error('❌ Failed to open external browser:', error);
+        // Try alternative method for Windows with proper escaping
+        if (process.platform === 'win32') {
+          const { exec } = require('child_process');
+          // Use cmd /c start with proper escaping
+          exec(`cmd /c start "" "${url.replace(/"/g, '""')}"`, (err: any) => {
+            if (err) {
+              console.error('❌ Alternative method also failed:', err);
+              // Last resort: try with PowerShell
+              exec(`powershell -Command "Start-Process '${url}'"`, (psErr: any) => {
+                if (psErr) console.error('❌ PowerShell method also failed:', psErr);
+              });
+            }
+          });
         }
-      } catch (error) {
-        // console.warn('⚠️ Failed to parse navigation URL:', navigationUrl, error)
-        // Only prevent navigation for main window on error
-        const isMainWindowContentsError = mainWindow && !mainWindow.isDestroyed() && contents === mainWindow.webContents;
-        if (isMainWindowContentsError) {
+      });
+    }
+  });
+
+  contents.on('will-navigate', (event, navigationUrl) => {
+    try {
+      // Check if this is the main window's webContents
+      const isMainWindowContents = mainWindow && !mainWindow.isDestroyed() && contents === mainWindow.webContents;
+      
+      if (isMainWindowContents) {
+        const parsedUrl = new URL(navigationUrl)
+        
+        // Allow navigation within the app and to OAuth providers for main window
+        const allowedOrigins = [
+          VITE_DEV_SERVER_URL,
+          'file:',
+          'about:'
+        ].filter(Boolean)
+        
+        // Allow Clerk OAuth and common OAuth providers
+        const oauthProviders = [
+          'https://accounts.google.com',
+          'https://login.microsoftonline.com',
+          'https://github.com/login',
+          'https://clerk.shared.lcl.dev',
+          'https://api.clerk.dev',
+          'https://clerk.dev',
+          'https://major-snipe-9.clerk.accounts.dev'
+        ]
+        
+        const isAllowed = allowedOrigins.some(origin => 
+          parsedUrl.protocol.startsWith(origin || '') || 
+          navigationUrl.startsWith(origin || '')
+        ) || oauthProviders.some(provider => 
+          navigationUrl.startsWith(provider)
+        )
+        
+        if (!isAllowed) {
+          // console.log('🚫 Blocking main window navigation to:', navigationUrl)
           event.preventDefault()
+        } else if (oauthProviders.some(provider => navigationUrl.startsWith(provider))) {
+          // console.log('🔐 Allowing OAuth navigation to:', navigationUrl)
+        }
+      } else {
+        // This is a webview - FIRST check Google auth
+        if (isGoogleAuthUrl(navigationUrl)) {
+          console.log('🔐 [will-navigate] Blocking Google auth - opening externally:', navigationUrl);
+          event.preventDefault();
+          
+          // Delay to avoid conflicts
+          setTimeout(() => {
+            // Open in external browser with error handling
+            shell.openExternal(navigationUrl).then(() => {
+              console.log('✅ Successfully opened Google auth in external browser');
+            }).catch((error) => {
+              console.error('❌ Failed to open external browser:', error);
+              // Try alternative method for Windows with proper escaping
+              if (process.platform === 'win32') {
+                const { exec } = require('child_process');
+                // Use cmd /c start with proper escaping
+                exec(`cmd /c start "" "${navigationUrl.replace(/"/g, '""')}"`, (err: any) => {
+                  if (err) {
+                    console.error('❌ Alternative method also failed:', err);
+                    // Last resort: try with PowerShell
+                    exec(`powershell -Command "Start-Process '${navigationUrl}'"`, (psErr: any) => {
+                      if (psErr) console.error('❌ PowerShell method also failed:', psErr);
+                    });
+                  }
+                });
+              }
+            });
+          }, 100);
+          return;
+        }
+        
+        // Then check other OAuth flows that should open externally
+        const externalAuthPatterns = [
+          "login.microsoftonline.com",
+          "/oauth/authorize",
+          "/auth/login",
+          "oauth.live.com"
+        ];
+        
+        const shouldOpenExternally = externalAuthPatterns.some(pattern => 
+          navigationUrl.toLowerCase().includes(pattern)
+        );
+        
+        if (shouldOpenExternally) {
+          console.log('�� Intercepting OAuth flow - opening in system browser:', navigationUrl);
+          event.preventDefault();
+          shell.openExternal(navigationUrl);
+        } else {
+          // console.log('🌐 Webview navigation allowed:', navigationUrl)
         }
       }
-    })
+    } catch (error) {
+      // console.warn('⚠️ Failed to parse navigation URL:', navigationUrl, error)
+      // Only prevent navigation for main window on error
+      const isMainWindowContentsError = mainWindow && !mainWindow.isDestroyed() && contents === mainWindow.webContents;
+      if (isMainWindowContentsError) {
+        event.preventDefault()
+      }
+    }
+  });
+
+  // Modern handling for new windows/popups
+  contents.setWindowOpenHandler((details) => {
+    const { url } = details;
+    try {
+      const parsedUrl = new URL(url);
+      const isMainWindowContents = mainWindow && !mainWindow.isDestroyed() && contents === mainWindow.webContents;
+      
+      if (!isMainWindowContents) { // Only handle for webviews
+        const externalAuthPatterns = [
+          'accounts.google.com/signin',
+          'accounts.google.com/oauth',
+          'accounts.google.com/o/oauth2',
+          'accounts.google.com/gsi',
+          'login.microsoftonline.com',
+          '/oauth/authorize',
+          '/auth/login',
+          'oauth.live.com'
+        ];
+        
+        const shouldOpenExternally = externalAuthPatterns.some(
+          pattern => url.toLowerCase().includes(pattern)
+        );
+        
+        if (shouldOpenExternally) {
+          console.log('🔐 Intercepting OAuth popup - opening in system browser:', url);
+          shell.openExternal(url);
+          return { action: 'deny' };
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error in window open handler:', error);
+    }
+    return { action: 'allow' };
+  });
 })
 
 // OAuth redirect handler

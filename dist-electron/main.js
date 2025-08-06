@@ -5815,18 +5815,34 @@ const exchangeCodeForToken = async (code) => {
     console.error("PKCE code verifier not found.");
     throw new Error("PKCE code verifier not found.");
   }
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  if (!clientId || clientId === "YOUR_CLIENT_ID") {
+    throw new Error(
+      "Google OAuth not configured. Please set GOOGLE_CLIENT_ID environment variable."
+    );
+  }
+  console.log("🔄 Exchanging authorization code for tokens...");
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       code,
-      client_id: process.env.GOOGLE_CLIENT_ID || "YOUR_CLIENT_ID",
+      client_id: clientId,
       redirect_uri: "aussievault://callback",
       grant_type: "authorization_code",
       code_verifier: codeVerifier
     })
   });
-  return response.json();
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("❌ Token exchange failed:", response.status, errorText);
+    throw new Error(
+      `Token exchange failed: ${response.status} ${response.statusText}`
+    );
+  }
+  const tokens = await response.json();
+  console.log("✅ OAuth tokens received successfully");
+  return tokens;
 };
 app.on("open-url", (event, url) => {
   event.preventDefault();
@@ -5890,7 +5906,24 @@ app.on("second-instance", (event, argv) => {
 ipcMain.on("start-google-signin", () => {
   const { codeVerifier, codeChallenge } = generatePKCECodes();
   global.pkceCodeVerifier = codeVerifier;
-  const signInUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID || "YOUR_CLIENT_ID"}&redirect_uri=aussievault://callback&response_type=code&scope=profile%20email&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  console.log("🔐 Starting Google OAuth flow...");
+  console.log(
+    "📋 Client ID configured:",
+    clientId ? `${clientId.substring(0, 20)}...` : "NOT SET"
+  );
+  if (!clientId || clientId === "YOUR_CLIENT_ID") {
+    console.error("❌ GOOGLE_CLIENT_ID not properly configured");
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(
+        "oauth-error",
+        "Google OAuth not configured. Please set GOOGLE_CLIENT_ID environment variable."
+      );
+    }
+    return;
+  }
+  const signInUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=aussievault://callback&response_type=code&scope=profile%20email&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+  console.log("🌐 Opening OAuth URL in external browser...");
   shell.openExternal(signInUrl);
 });
 export {

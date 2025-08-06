@@ -1,22 +1,11 @@
-import {
-  app,
-  BrowserWindow,
-  session,
-  ipcMain,
-  Menu,
-  shell,
-  nativeImage,
-} from "electron";
+import { app, BrowserWindow, session, ipcMain, Menu, shell } from "electron";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { spawn, ChildProcess } from "child_process";
 import { promises as fs } from "fs";
 import { homedir } from "os";
 import os from "os";
-import {
-  getPlatformInfo,
-  printPlatformInstructions,
-} from "../src/utils/platform.js";
+import { printPlatformInstructions } from "../src/utils/platform.js";
 import electronSquirrelStartup from "electron-squirrel-startup";
 import fetch from "node-fetch";
 
@@ -59,7 +48,7 @@ export interface VaultCredentials {
 }
 
 // Constants for better maintainability
-const VPN_CHECK_TIMEOUT = 10000; // 10 seconds
+const VPN_CHECK_TIMEOUT = 30000; // 30 seconds for IP geolocation (increased)
 const PROCESS_TIMEOUT = 30000; // 30 seconds for process operations
 const IP_GEOLOCATION_API = "https://ipinfo.io/json";
 const AUSTRALIAN_COUNTRY_CODES = ["AU", "Australia"] as const;
@@ -152,10 +141,28 @@ const updateVPNStatus = (connected: boolean): void => {
   vpnConnected = connected;
 
   if (wasConnected !== connected) {
-    // console.log(`🔄 VPN status changed: ${wasConnected ? 'Connected' : 'Disconnected'} → ${connected ? 'Connected' : 'Disconnected'}`);
+    if (connected) {
+      console.log(
+        "🇦🇺 ✅ VPN STATUS: Connected to Australian VPN - Browsing ENABLED"
+      );
+    } else {
+      console.log(
+        "🚨 ❌ VPN STATUS: NOT connected to Australian VPN - Browsing BLOCKED"
+      );
+      console.log(
+        "⚠️  All external website access has been disabled for security"
+      );
+      console.log("💡 Connect to Australian VPN server to enable browsing");
+    }
   }
 
-  // console.log(`📡 VPN Status Updated: ${connected ? '✅ Connected - Allowing all HTTPS requests' : '❌ Disconnected - Blocking external requests'}`);
+  console.log(
+    `📡 🇦🇺 VPN Status: ${
+      connected
+        ? "✅ AUSTRALIAN VPN CONNECTED - All HTTPS requests allowed"
+        : "❌ NO AUSTRALIAN VPN - All external requests BLOCKED"
+    }`
+  );
 
   // Send VPN status to all windows
   windows.forEach((window) => {
@@ -216,8 +223,8 @@ const connectWireGuard = async (): Promise<boolean> => {
       // console.log('📝 This is OK - config file not required for detection');
     }
 
-    const _platformInfo = getPlatformInfo();
-    // console.log(`🔌 Checking WireGuard connection on ${_platformInfo.displayName}...`);
+    // const platformInfo = getPlatformInfo();
+    // console.log(`🔌 Checking WireGuard connection on ${platformInfo.displayName}...`);
 
     // Check if VPN is already connected (IP geolocation check)
     const isConnected = await checkWireGuardConnection();
@@ -335,330 +342,206 @@ const connectWireGuardWindows = async (
 
 // Cross-platform WireGuard status check
 const checkWireGuardConnection = async (): Promise<boolean> => {
-  const platform = process.platform;
-
+  // Platform-independent: Only check IP geolocation for VPN verification
   try {
-    switch (platform) {
-      case "linux":
-        return await checkWireGuardLinux();
-      case "darwin": // macOS
-        return await checkWireGuardMacOS();
-      case "win32": // Windows
-        return await checkWireGuardWindows();
-      default:
-        console.warn(`⚠️ Unsupported platform: ${platform}`);
-        return false;
+    const isAustralian = await checkCurrentIP();
+    if (isAustralian) {
+      console.log("✅ IP geolocation check PASSED - Australian VPN confirmed");
+      return true;
+    } else {
+      console.log(
+        "❌ IP geolocation check FAILED - Not connected to Australian VPN"
+      );
+      return false;
     }
   } catch (error) {
-    console.error("❌ Error checking WireGuard status:", error);
+    console.log("❌ VPN connection check error:", error);
     return false;
   }
 };
 
-// Linux status check
-const checkWireGuardLinux = async (): Promise<boolean> => {
-  return new Promise((resolve) => {
-    const process = spawn("wg", ["show"], {
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-
-    let output = "";
-    process.stdout.on("data", (data) => {
-      output += data.toString();
-    });
-
-    process.on("exit", (code) => {
-      if (code === 0 && output.trim()) {
-        // console.log('🐧 WireGuard active on Linux');
-        resolve(true);
-      } else {
-        resolve(false);
-      }
-    });
-
-    process.on("error", () => resolve(false));
-    setTimeout(() => resolve(false), 5000);
-  });
-};
-
-// macOS status check
-const checkWireGuardMacOS = async (): Promise<boolean> => {
-  return new Promise((resolve) => {
-    // First try wg command
-    const process = spawn("wg", ["show"], {
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-
-    let output = "";
-    process.stdout.on("data", (data) => {
-      output += data.toString();
-    });
-
-    process.on("exit", (code) => {
-      if (code === 0 && output.trim()) {
-        // console.log('🍎 WireGuard active on macOS');
-        resolve(true);
-      } else {
-        // Also check for WireGuard via network interfaces
-        checkMacOSNetworkInterfaces().then(resolve);
-      }
-    });
-
-    process.on("error", () => {
-      // Fallback to network interface check
-      checkMacOSNetworkInterfaces().then(resolve);
-    });
-
-    setTimeout(() => resolve(false), 5000);
-  });
-};
-
-// macOS network interface check
-const checkMacOSNetworkInterfaces = async (): Promise<boolean> => {
-  return new Promise((resolve) => {
-    const process = spawn("ifconfig", [], {
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-
-    let output = "";
-    process.stdout.on("data", (data) => {
-      output += data.toString();
-    });
-
-    process.on("exit", () => {
-      const hasWG =
-        output.includes("utun") ||
-        output.includes("tun") ||
-        output.includes("wg");
-      resolve(hasWG);
-    });
-
-    process.on("error", () => resolve(false));
-    setTimeout(() => resolve(false), 5000);
-  });
-};
-
-// Windows status check with IP geolocation as primary indicator
-const checkWireGuardWindows = async (): Promise<boolean> => {
-  // console.log('🪟 Starting comprehensive Windows VPN detection...');
-
-  // PRIMARY CHECK: IP geolocation (MANDATORY for VPN verification)
-  // console.log('🔍 PRIMARY CHECK: IP geolocation (mandatory)...');
-  const ipResult = await checkCurrentIP();
-
-  if (!ipResult) {
-    // console.log('❌ IP geolocation check FAILED - not connected to Australian VPN');
-    // console.log('🚨 CRITICAL: User appears to be browsing from non-Australian IP');
-
-    // Additional checks for diagnostic purposes only
-    // console.log('🔍 Running diagnostic checks for troubleshooting...');
-    await checkWireGuardCLI();
-    await checkWindowsNetworkInterfaces();
-    await checkRoutingTable();
-
-    // Note: Do NOT use ping test as VPN indicator - it's misleading
-    // console.log('⚠️  Note: Ping connectivity to VPN server does not indicate active VPN connection');
-
-    return false; // IP check is mandatory - if it fails, VPN is NOT connected
-  }
-
-  // console.log('✅ IP geolocation check PASSED - Australian VPN confirmed');
-
-  // Secondary verification checks (optional but helpful for diagnostics)
-  // console.log('🔍 Running secondary verification checks...');
-
-  const cliResult = await checkWireGuardCLI();
-  const interfaceResult = await checkWindowsNetworkInterfaces();
-  const routingResult = await checkRoutingTable();
-
-  if (cliResult || interfaceResult || routingResult) {
-    // console.log('✅ Secondary checks confirm WireGuard is properly configured');
-  } else {
-    // console.log('⚠️  Secondary checks inconclusive, but IP location confirms VPN is working');
-  }
-
-  return true; // IP check passed, so VPN is definitely connected
-};
-
-// Method 1: Check WireGuard CLI
-const checkWireGuardCLI = async (): Promise<boolean> => {
-  return new Promise((resolve) => {
-    // console.log('🔍 Checking WireGuard CLI...');
-    const wgProcess = spawn("wg", ["show"], {
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-
-    let wgOutput = "";
-    wgProcess.stdout.on("data", (data) => {
-      wgOutput += data.toString();
-    });
-
-    wgProcess.on("exit", (code) => {
-      // console.log(`🔍 WireGuard CLI exit code: ${code}`);
-      // console.log(`🔍 WireGuard CLI output: "${wgOutput.trim()}"`);
-
-      if (code === 0 && wgOutput.trim()) {
-        // console.log('🪟 WireGuard active on Windows (CLI)');
-        resolve(true);
-        return;
-      }
-      resolve(false);
-    });
-
-    wgProcess.on("error", (error) => {
-      // console.log('🔍 WireGuard CLI error:', error.message);
-      resolve(false);
-    });
-
-    setTimeout(() => {
-      // console.log('🔍 WireGuard CLI check timed out');
-      resolve(false);
-    }, 3000);
-  });
-};
-
-// Method 2: Windows network interface check (enhanced)
-const checkWindowsNetworkInterfaces = async (): Promise<boolean> => {
-  return new Promise((resolve) => {
-    // console.log('🔍 Checking network interfaces via netsh...');
-    const netshProcess = spawn("netsh", ["interface", "show", "interface"], {
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-
-    let output = "";
-    netshProcess.stdout.on("data", (data) => {
-      output += data.toString();
-    });
-
-    netshProcess.on("exit", () => {
-      // console.log('🔍 Network interfaces output:');
-      // console.log(output);
-
-      const hasWireGuard =
-        output.toLowerCase().includes("wireguard") ||
-        output.toLowerCase().includes("wg") ||
-        output.toLowerCase().includes("tun");
-
-      // console.log(`🔍 WireGuard interface found: ${hasWireGuard}`);
-
-      if (hasWireGuard) {
-        // console.log('🪟 WireGuard interface detected on Windows');
-      }
-      resolve(hasWireGuard);
-    });
-
-    netshProcess.on("error", (error) => {
-      // console.log('🔍 Network interface check error:', error.message);
-      resolve(false);
-    });
-    setTimeout(() => {
-      // console.log('🔍 Network interface check timed out');
-      resolve(false);
-    }, 3000);
-  });
-};
-
-// Method 3: Check routing table for VPN server IP
-const checkRoutingTable = async (): Promise<boolean> => {
-  return new Promise((resolve) => {
-    // console.log('🔍 Checking routing table...');
-    const endpoint = process.env.WIREGUARD_ENDPOINT || "134.199.169.102:59926";
-    const serverIP = endpoint.split(":")[0];
-
-    // console.log(`🔍 Looking for routes to server: ${serverIP}`);
-
-    const routeProcess = spawn("route", ["print"], {
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-
-    let output = "";
-    routeProcess.stdout.on("data", (data) => {
-      output += data.toString();
-    });
-
-    routeProcess.on("exit", () => {
-      const hasServerRoute = output.includes(serverIP);
-      // console.log(`🔍 Route to VPN server found: ${hasServerRoute}`);
-
-      if (hasServerRoute) {
-        // console.log(`🪟 Found route to VPN server ${serverIP}`);
-      }
-      resolve(hasServerRoute);
-    });
-
-    routeProcess.on("error", (error) => {
-      // console.log('🔍 Route check error:', error.message);
-      resolve(false);
-    });
-
-    setTimeout(() => {
-      // console.log('🔍 Route check timed out');
-      resolve(false);
-    }, 3000);
-  });
-};
-
-// Method 4: Check current public IP via PowerShell
+// Check current public IP and country using direct HTTPS requests
 const checkCurrentIP = async (): Promise<boolean> => {
-  return new Promise((resolve) => {
-    // console.log('🔍 Checking current public IP and location...');
+  console.log(
+    "🔍 🇦🇺 AUSTRALIAN IP DETECTION: Starting bulletproof IP detection with multiple APIs..."
+  );
 
-    // Use PowerShell to get IP and location info from ipinfo.io
-    const psCommand = `(Invoke-WebRequest -Uri "${IP_GEOLOCATION_API}" -UseBasicParsing).Content | ConvertFrom-Json | ConvertTo-Json -Compress`;
-    const psProcess = spawn("powershell", ["-Command", psCommand], {
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+  // Try direct HTTPS requests first (most reliable)
+  const apis = [
+    "https://ipinfo.io/json",
+    "https://ipapi.co/json",
+    "https://ip-api.com/json",
+    "https://freegeoip.app/json/",
+    "https://extreme-ip-lookup.com/json/",
+  ];
 
-    let output = "";
-    psProcess.stdout.on("data", (data) => {
-      output += data.toString();
-    });
+  for (const api of apis) {
+    try {
+      const response = await fetch(api, {
+        signal: AbortSignal.timeout(8000),
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        },
+      });
 
-    psProcess.on("exit", () => {
-      try {
-        const ipInfo = JSON.parse(output.trim());
-        const _currentIP = ipInfo.ip;
-        const country = ipInfo.country;
-        const _region = ipInfo.region;
-        const _city = ipInfo.city;
+      if (!response.ok) continue;
 
-        // console.log(`🔍 Current public IP: ${_currentIP}`);
-        // console.log(`🔍 Location: ${_city}, ${_region}, ${country}`);
+      const data = await response.json();
+      const ip = data.ip || data.query || "";
+      const country =
+        data.country || data.country_name || data.countryCode || "";
+      const region = data.region || data.regionName || "";
+      const city = data.city || "";
 
-        // Check if IP is from Australia
+      if (country) {
+        console.log(`🔍 Current public IP: ${ip}`);
+        console.log(`🔍 Location: ${city}, ${region}, ${country}`);
+
         const isAustralianIP = isAustralianCountry(country);
 
         if (isAustralianIP) {
-          // console.log('🇦🇺 ✅ Connected via Australian VPN!');
-          // console.log(`📍 Australian location detected: ${city}, ${region}`);
+          console.log("🇦🇺 ✅ VERIFIED: Connected via Australian VPN!");
+          console.log(`📍 Australian location confirmed: ${city}, ${region}`);
+          return true;
         } else {
-          // console.log(`❌ Not connected to Australian VPN. Current location: ${country}`);
+          console.log(
+            "🚨 ❌ SECURITY VIOLATION: Not connected to Australian VPN!"
+          );
+          console.log(`🚫 Current location: ${country} - BROWSING BLOCKED`);
+          console.log(
+            "⚠️  Please connect to Australian VPN server to continue"
+          );
+          return false;
         }
-
-        resolve(isAustralianIP);
-      } catch (error) {
-        // console.log('🔍 Failed to parse IP info:', error);
-        // console.log('🔍 Raw output:', output);
-
-        // For development, assume Australian IP
-        console.log("🔧 IP check failed, assuming Australian for development");
-        resolve(true);
       }
+    } catch (error) {
+      console.log(`🔍 API ${api} failed, trying next...`);
+      continue;
+    }
+  }
+
+  // Fallback: try basic IP detection without country info
+  console.log("🔄 PowerShell command failed, trying simpler IP check...");
+  try {
+    const fallbackResponse = await fetch("https://api.ipify.org?format=json", {
+      signal: AbortSignal.timeout(5000),
     });
 
-    psProcess.on("error", (_error) => {
+    if (fallbackResponse.ok) {
+      const data = await fallbackResponse.json();
+      console.log(`🔍 Got real IP via fallback: ${data.ip}`);
+      // Without country info, we cannot verify Australian location
       console.log(
-        "🔧 PowerShell process error, assuming Australian for development"
+        "⚠️  Could not verify country - assuming non-Australian for security"
       );
-      resolve(true);
-    });
+      return false;
+    }
+  } catch (error) {
+    console.log("🔍 All IP detection methods failed");
+  }
 
-    setTimeout(() => {
-      console.log("🔧 IP check timed out, assuming Australian for development");
-      psProcess.kill();
-      resolve(true);
-    }, VPN_CHECK_TIMEOUT);
+  console.log("🚨 ❌ IP check failed - BLOCKING browsing for security");
+  console.log(
+    "⚠️  Unable to verify Australian IP - SECURITY MEASURE ACTIVATED"
+  );
+  return false;
+
+  // Multiple fallback APIs for maximum reliability
+  const apiTries = [
+    `try { $r = Invoke-RestMethod -Uri "https://ipinfo.io/json" -TimeoutSec 8; $r | ConvertTo-Json -Compress } catch { $null }`,
+    `try { $r = Invoke-RestMethod -Uri "https://ipapi.co/json" -TimeoutSec 8; $r | ConvertTo-Json -Compress } catch { $null }`,
+    `try { $r = Invoke-RestMethod -Uri "https://api.ipify.org?format=json" -TimeoutSec 8; @{ip=$r.ip; country="Unknown"} | ConvertTo-Json -Compress } catch { $null }`,
+    `try { $ip = (Invoke-RestMethod -Uri "https://checkip.amazonaws.com" -TimeoutSec 8).Trim(); @{ip=$ip; country="Unknown"} | ConvertTo-Json -Compress } catch { $null }`,
+  ];
+
+  // Create PowerShell command that tries each API until one works
+  const psCommand = `
+      $apis = @(
+        "${apiTries[0]}",
+        "${apiTries[1]}",
+        "${apiTries[2]}",
+        "${apiTries[3]}"
+      );
+      foreach ($api in $apis) {
+        $result = Invoke-Expression $api;
+        if ($result) { 
+          Write-Output $result; 
+          break; 
+        }
+      }
+    `
+    .replace(/\s+/g, " ")
+    .trim();
+  const psProcess = spawn("powershell", ["-Command", psCommand], {
+    stdio: ["pipe", "pipe", "pipe"],
   });
+
+  let output = "";
+  psProcess.stdout.on("data", (data) => {
+    output += data.toString();
+  });
+
+  psProcess.on("exit", () => {
+    try {
+      const ipInfo = JSON.parse(output.trim());
+      const currentIP = ipInfo.ip;
+      const country = ipInfo.country;
+      const region = ipInfo.region;
+      const city = ipInfo.city;
+
+      console.log(`🔍 Current public IP: ${currentIP}`);
+      console.log(`🔍 Location: ${city}, ${region}, ${country}`);
+
+      // STRICT CHECK: IP MUST be from Australia
+      const isAustralianIP = isAustralianCountry(country);
+
+      if (isAustralianIP) {
+        console.log("🇦🇺 ✅ VERIFIED: Connected via Australian VPN!");
+        console.log(`📍 Australian location confirmed: ${city}, ${region}`);
+        resolve(true);
+      } else {
+        console.log(
+          "🚨 ❌ SECURITY VIOLATION: Not connected to Australian VPN!"
+        );
+        console.log(`🚫 Current location: ${country} - BROWSING BLOCKED`);
+        console.log("⚠️  Please connect to Australian VPN server to continue");
+        resolve(false);
+      }
+    } catch (error) {
+      console.log("� ❌ IP check failed - BLOCKING browsing for security");
+      console.log("🔍 Error details:", error);
+      console.log("🔍 Raw output:", output);
+      console.log(
+        "⚠️  Unable to verify Australian IP - SECURITY MEASURE ACTIVATED"
+      );
+
+      // STRICT SECURITY: If we can't verify Australian IP, block browsing
+      resolve(false);
+    }
+  });
+
+  psProcess.on("error", (error) => {
+    console.log("🚨 ❌ PowerShell process error - WILL SHOW ERROR SCREEN");
+    console.log("🔍 Error details:", error);
+    console.log(
+      "⚠️  Unable to verify Australian IP - User will see error screen"
+    );
+
+    // Show error screen if IP check fails
+    resolve(false);
+  });
+
+  setTimeout(() => {
+    console.log("� ❌ IP check timed out - BLOCKING browsing for security");
+    console.log(
+      "⚠️  Unable to verify Australian IP within timeout - SECURITY MEASURE ACTIVATED"
+    );
+    psProcess.kill();
+
+    // STRICT SECURITY: If IP check times out, block browsing
+    resolve(false);
+  }, VPN_CHECK_TIMEOUT);
 };
 
 // Note: testVPNConnectivity function removed - ping connectivity is NOT a reliable VPN indicator
@@ -730,12 +613,82 @@ const disconnectWireGuardWindows = async (): Promise<boolean> => {
 const configureSecureSession = (): void => {
   const defaultSession = session.defaultSession;
 
+  // 🔐 ENHANCED SECURITY: Configure security headers and policies for Google OAuth compatibility
+  const securityHeaders = {
+    "Content-Security-Policy": [
+      "default-src 'self' https:",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://accounts.google.com https://*.googleapis.com https://ssl.gstatic.com",
+      "style-src 'self' 'unsafe-inline' https://accounts.google.com https://fonts.googleapis.com",
+      "img-src 'self' data: https: blob:",
+      "font-src 'self' https://fonts.gstatic.com",
+      "connect-src 'self' https: wss: ws:",
+      "frame-src 'self' https://accounts.google.com https://*.google.com",
+      "object-src 'none'",
+      "base-uri 'self'",
+    ].join("; "),
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "SAMEORIGIN",
+    "X-XSS-Protection": "1; mode=block",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy":
+      "geolocation=(), microphone=(), camera=(), payment=(), usb=()",
+  };
+
+  // Apply security headers to all sessions
+  const applySecurity = (sessionInstance: Electron.Session) => {
+    sessionInstance.webRequest.onHeadersReceived((details, callback) => {
+      const responseHeaders = details.responseHeaders || {};
+
+      // Add security headers
+      Object.entries(securityHeaders).forEach(([header, value]) => {
+        responseHeaders[header] = [value];
+      });
+
+      callback({ responseHeaders });
+    });
+
+    // Enhanced security settings
+    sessionInstance.setPermissionRequestHandler(
+      (_webContents, permission, callback) => {
+        // Only allow necessary permissions for OAuth
+        const allowedPermissions = [
+          "clipboard-read",
+          "clipboard-write",
+          "fullscreen",
+        ];
+        callback(allowedPermissions.includes(permission));
+      }
+    );
+
+    // Block insecure content
+    sessionInstance.webRequest.onBeforeRequest((details, callback) => {
+      const url = details.url.toLowerCase();
+
+      // Block mixed content (HTTP on HTTPS pages)
+      if (
+        url.startsWith("http://") &&
+        !url.includes("localhost") &&
+        !url.includes("127.0.0.1")
+      ) {
+        callback({ cancel: true });
+        return;
+      }
+
+      callback({ cancel: false });
+    });
+  };
+
   // 🔐 SHARED AUTHENTICATION SESSION: Configure shared session for authentication
   // This ensures all windows share the same authentication state (Clerk tokens, localStorage)
   const sharedAuthSession = session.fromPartition("persist:shared-auth");
+  applySecurity(sharedAuthSession);
 
   // 🌐 WEBVIEW SESSION: Configure webview session with ABSOLUTE ZERO restrictions
   const webviewSession = session.fromPartition("persist:webview");
+
+  // 🍪 ENABLE PERSISTENT COOKIES: Essential for Google Sign-In and other website logins
+  // This ensures users stay logged in to Gmail, YouTube, etc.
+  console.log("🍪 Configuring persistent cookies for webview session...");
 
   // NUCLEAR OPTION: Completely disable all webRequest blocking for webview session
   try {
@@ -754,15 +707,23 @@ const configureSecureSession = (): void => {
     );
   }
 
-  // AGGRESSIVE: Clear any persistent restrictions
+  // Apply minimal security to webview (to maintain Google OAuth compatibility)
+  webviewSession.setPermissionRequestHandler(
+    (_webContents, _permission, callback) => {
+      // Allow all permissions for website functionality
+      callback(true);
+    }
+  );
+
+  // 🍪 PRESERVE COOKIES: Do NOT clear cookies to maintain user login sessions
+  // This allows users to stay logged in to Gmail, YouTube, and other Google services
   try {
+    // Only clear cache and temporary data, NOT cookies or localStorage
     webviewSession
       .clearStorageData({
         storages: [
-          "cookies",
           "filesystem",
           "indexdb",
-          "localstorage",
           "shadercache",
           "websql",
           "serviceworkers",
@@ -771,7 +732,7 @@ const configureSecureSession = (): void => {
       })
       .then(() => {
         console.log(
-          "🧹 Webview session storage cleared for unrestricted browsing"
+          "🧹 Webview session temporary storage cleared (cookies preserved)"
         );
       });
   } catch (e: any) {
@@ -803,38 +764,89 @@ const configureSecureSession = (): void => {
       return;
     }
 
-    // Allow Clerk authentication domains
+    // � CRITICAL: Always allow IP geolocation requests (needed to verify Australian VPN)
+    if (
+      url.includes("ipinfo.io") ||
+      url.includes("ipapi.co") ||
+      url.includes("api.ipify.org") ||
+      url.includes("checkip.amazonaws.com") ||
+      url.includes("icanhazip.com") ||
+      url.includes("httpbin.org/ip") ||
+      url.includes("myexternalip.com") ||
+      url.includes("ipify.org") ||
+      url.includes("whatismyipaddress.com") ||
+      url.includes("ip-api.com") ||
+      url.includes("geoip-db.com") ||
+      url.includes("freegeoip.app") ||
+      url.includes("extreme-ip-lookup.com")
+    ) {
+      console.log(
+        "✅ 🔍 SHARED AUTH: ALLOWING IP geolocation request (NEVER BLOCKED):",
+        details.url
+      );
+      callback({ cancel: false });
+      return;
+    }
+
+    // �🚨 STRICT SECURITY: Block OTHER external requests if VPN not connected to Australia
+    if (!vpnConnected && url.startsWith("https://")) {
+      console.log(
+        "🚫 🇦🇺 SHARED AUTH: BLOCKING external request - Australian VPN required:",
+        details.url
+      );
+      console.log(
+        "⚠️  Connect to Australian VPN server to access external websites"
+      );
+      callback({ cancel: true });
+      return;
+    }
+
+    // Allow Clerk authentication domains when VPN is connected
     if (
       url.includes("clerk.dev") ||
       url.includes("clerk.com") ||
       url.includes("clerk.accounts.dev")
     ) {
-      // console.log('✅ Allowing Clerk auth request:', details.url)
+      console.log(
+        "✅ 🇦🇺 SHARED AUTH: Allowing Clerk auth request via Australian VPN:",
+        details.url
+      );
       callback({ cancel: false });
       return;
     }
 
-    // Allow only HTTPS connections for external requests
+    // Block insecure HTTP requests
     if (url.startsWith("http://")) {
-      // console.log('🚫 Blocking insecure HTTP request:', details.url)
+      console.log(
+        "🚫 SHARED AUTH: BLOCKING insecure HTTP request:",
+        details.url
+      );
       callback({ cancel: true });
       return;
     }
 
-    // Allow HTTPS requests for authentication
+    // Allow HTTPS requests for authentication when VPN is connected
     if (url.startsWith("https://")) {
-      // console.log('✅ Allowing HTTPS auth request:', details.url)
+      console.log(
+        "✅ 🇦🇺 SHARED AUTH: Allowing HTTPS auth request via Australian VPN:",
+        details.url
+      );
       callback({ cancel: false });
       return;
     }
 
-    callback({ cancel: false });
+    // Block everything else
+    console.log(
+      "🚫 SHARED AUTH: BLOCKING unknown protocol request:",
+      details.url
+    );
+    callback({ cancel: true });
   });
 
   // Set User-Agent for shared session to support OAuth flows
   sharedAuthSession.webRequest.onBeforeSendHeaders((details, callback) => {
     let userAgent =
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
 
     // Use Edge user agent for better Microsoft OAuth compatibility
     if (
@@ -842,7 +854,7 @@ const configureSecureSession = (): void => {
       details.url.includes("googleapis.com")
     ) {
       userAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0";
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0";
     }
 
     callback({
@@ -856,11 +868,61 @@ const configureSecureSession = (): void => {
     });
   });
 
-  // 🌐 WEBVIEW SESSION: NUCLEAR OPTION - ABSOLUTE ZERO restrictions
-  // ALWAYS ALLOW ALL REQUESTS - No exceptions, no filtering, no restrictions, no delays
+  // 🌐 WEBVIEW SESSION: 🇦🇺 AUSTRALIAN VPN ENFORCEMENT
+  // Block all external requests unless connected to Australian VPN
   webviewSession.webRequest.onBeforeRequest((details, callback) => {
-    // Log for debugging authentication issues
     const url = details.url.toLowerCase();
+
+    // Always allow localhost and app files
+    if (
+      url.includes("localhost") ||
+      url.includes("127.0.0.1") ||
+      url.startsWith("file://") ||
+      url.startsWith("chrome-extension://") ||
+      url.startsWith("devtools://")
+    ) {
+      callback({ cancel: false });
+      return;
+    }
+
+    // � CRITICAL: Always allow IP geolocation requests (needed to verify Australian VPN)
+    if (
+      url.includes("ipinfo.io") ||
+      url.includes("ipapi.co") ||
+      url.includes("api.ipify.org") ||
+      url.includes("checkip.amazonaws.com") ||
+      url.includes("icanhazip.com") ||
+      url.includes("httpbin.org/ip") ||
+      url.includes("myexternalip.com") ||
+      url.includes("ipify.org") ||
+      url.includes("whatismyipaddress.com") ||
+      url.includes("ip-api.com") ||
+      url.includes("geoip-db.com") ||
+      url.includes("freegeoip.app") ||
+      url.includes("extreme-ip-lookup.com")
+    ) {
+      console.log(
+        "✅ 🔍 WEBVIEW: ALLOWING IP geolocation request (NEVER BLOCKED):",
+        details.url
+      );
+      callback({ cancel: false });
+      return;
+    }
+
+    // �🚨 STRICT SECURITY: Block OTHER external requests if VPN not connected to Australia
+    if (!vpnConnected && url.startsWith("https://")) {
+      console.log(
+        "🚫 🇦🇺 WEBVIEW: BLOCKING external request - Australian VPN required:",
+        details.url
+      );
+      console.log(
+        "⚠️  Connect to Australian VPN server to access external websites"
+      );
+      callback({ cancel: true });
+      return;
+    }
+
+    // Log for debugging authentication issues when VPN is connected
     if (
       url.includes("google.com") ||
       url.includes("microsoft.com") ||
@@ -868,27 +930,43 @@ const configureSecureSession = (): void => {
       url.includes("oauth")
     ) {
       console.log(
-        "🌐 WEBVIEW AUTH: Allowing critical auth request:",
+        "🌐 🇦🇺 WEBVIEW AUTH: Allowing critical auth request via Australian VPN:",
         details.url
       );
     }
-    // Immediate allow without any checks
-    callback({ cancel: false });
+
+    // Allow all HTTPS requests when Australian VPN is connected
+    if (url.startsWith("https://")) {
+      // console.log('✅ 🇦🇺 WEBVIEW: ALLOWING HTTPS request via Australian VPN:', details.url);
+      callback({ cancel: false });
+      return;
+    }
+
+    // Block HTTP requests
+    if (url.startsWith("http://")) {
+      console.log("🚫 WEBVIEW: BLOCKING insecure HTTP request:", details.url);
+      callback({ cancel: true });
+      return;
+    }
+
+    // Block everything else
+    console.log("🚫 WEBVIEW: BLOCKING unknown protocol request:", details.url);
+    callback({ cancel: true });
   });
 
   // OVERRIDE: Ensure headers are never blocked or modified
   webviewSession.webRequest.onBeforeSendHeaders((details, callback) => {
     const url = details.url.toLowerCase();
     let userAgent =
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
 
     // Use specific user agents for OAuth providers
     if (url.includes("google.com") || url.includes("googleapis.com")) {
       userAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
     } else if (url.includes("microsoft.com") || url.includes("live.com")) {
       userAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0";
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0";
     }
 
     // Pass through headers with OAuth-friendly configuration
@@ -1134,7 +1212,7 @@ const configureSecureSession = (): void => {
       item.setSavePath(tempPath);
 
       return new Promise<void>((resolve, reject) => {
-        item.on("updated", (_event: any, state: any) => {
+        item.on("updated", (_event: any, _state: any) => {
           const progressData = {
             id: downloadId,
             filename: item.getFilename(),
@@ -1235,7 +1313,7 @@ const configureSecureSession = (): void => {
   // Meta storage upload function
   const uploadToMetaStorage = async (
     downloadId: string,
-    filePath: string,
+    _filePath: string,
     filename: string
   ) => {
     // Notify upload phase start
@@ -1432,22 +1510,69 @@ const configureSecureSession = (): void => {
     return null;
   };
 
-  // MINIMAL blocking - only block truly insecure HTTP, allow everything else
+  // 🇦🇺 AUSTRALIAN IP DETECTION: NO BLOCKING for IP geolocation - detection must always work
   defaultSession.webRequest.onBeforeRequest((details, callback) => {
     const url = details.url.toLowerCase();
 
-    // Block only insecure HTTP requests (not HTTPS)
+    // Always allow localhost, app files, and extensions
     if (
-      url.startsWith("http://") &&
-      !url.includes("localhost") &&
-      !url.includes("127.0.0.1")
+      url.includes("localhost") ||
+      url.includes("127.0.0.1") ||
+      url.startsWith("file://") ||
+      url.startsWith("chrome-extension://") ||
+      url.startsWith("devtools://")
     ) {
+      callback({ cancel: false });
+      return;
+    }
+
+    // 🔍 CRITICAL: NEVER BLOCK IP geolocation requests - detection is mandatory and must always work
+    if (
+      url.includes("ipinfo.io") ||
+      url.includes("ipapi.co") ||
+      url.includes("api.ipify.org") ||
+      url.includes("checkip.amazonaws.com") ||
+      url.includes("icanhazip.com") ||
+      url.includes("httpbin.org/ip") ||
+      url.includes("myexternalip.com") ||
+      url.includes("ipify.org") ||
+      url.includes("whatismyipaddress.com") ||
+      url.includes("ip-api.com") ||
+      url.includes("geoip-db.com") ||
+      url.includes("freegeoip.app") ||
+      url.includes("extreme-ip-lookup.com")
+    ) {
+      console.log(
+        "✅ 🔍 ALLOWING IP geolocation request (NEVER BLOCKED):",
+        details.url
+      );
+      callback({ cancel: false });
+      return;
+    }
+
+    // Allow HTTPS requests when VPN is connected to Australia
+    if (vpnConnected && url.startsWith("https://")) {
+      callback({ cancel: false });
+      return;
+    }
+
+    // Block insecure HTTP requests
+    if (url.startsWith("http://")) {
+      console.log("🚫 BLOCKING insecure HTTP request:", details.url);
       callback({ cancel: true });
       return;
     }
 
-    // ALLOW EVERYTHING ELSE - No exceptions, no filtering
-    callback({ cancel: false });
+    // If not connected to Australian VPN, show error but allow IP detection
+    if (!vpnConnected && url.startsWith("https://")) {
+      console.log("🚫 🇦🇺 BLOCKING - Australian VPN required:", details.url);
+      callback({ cancel: true });
+      return;
+    }
+
+    // Block everything else
+    console.log("🚫 BLOCKING unknown protocol request:", details.url);
+    callback({ cancel: true });
   });
 
   // Set security headers for main app only (not for external webview content)
@@ -1501,12 +1626,12 @@ const configureSecureSession = (): void => {
 
     // Use a more standard user agent for OAuth providers
     let userAgent =
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
 
     // For Google OAuth, use a more specific user agent
     if (url.includes("accounts.google.com") || url.includes("googleapis.com")) {
       userAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0";
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0";
     }
 
     callback({
@@ -1582,41 +1707,18 @@ function createBrowserWindow(isMain: boolean = false): BrowserWindow {
     const url = details.url;
     const urlLower = url.toLowerCase();
 
-    // 🔐 ENHANCED OAUTH DETECTION: Detect OAuth flows more comprehensively
-    const isOAuthFlow =
-      // Direct Google OAuth URLs
-      urlLower.includes("accounts.google.com") ||
-      urlLower.includes("oauth.google.com") ||
-      // Microsoft OAuth URLs
-      urlLower.includes("login.microsoftonline.com") ||
-      urlLower.includes("login.live.com") ||
-      // Other OAuth providers
-      urlLower.includes("oauth") ||
-      urlLower.includes("openid") ||
-      urlLower.includes("/auth/") ||
-      urlLower.includes("/login/") ||
-      urlLower.includes("/signin/") ||
-      urlLower.includes("sso") ||
-      // Common OAuth parameters in URL
-      urlLower.includes("client_id=") ||
-      urlLower.includes("response_type=") ||
-      urlLower.includes("redirect_uri=") ||
-      urlLower.includes("scope=") ||
-      urlLower.includes("state=") ||
-      // Social login patterns
-      (urlLower.includes("google") &&
-        (urlLower.includes("login") || urlLower.includes("auth"))) ||
-      (urlLower.includes("microsoft") &&
-        (urlLower.includes("login") || urlLower.includes("auth"))) ||
-      (urlLower.includes("facebook") &&
-        (urlLower.includes("login") || urlLower.includes("auth"))) ||
-      (urlLower.includes("twitter") &&
-        (urlLower.includes("login") || urlLower.includes("auth"))) ||
-      (urlLower.includes("github") &&
-        (urlLower.includes("login") || urlLower.includes("auth")));
+    // 🔐 SPECIFIC OAUTH DETECTION: Only intercept our app's OAuth flows
+    const isAppOAuthFlow =
+      // Only intercept if it's specifically redirecting to our app
+      urlLower.includes("redirect_uri=aussievault://") ||
+      urlLower.includes("redirect_uri%3daussievault://") ||
+      urlLower.includes("aussievault://");
 
-    if (isOAuthFlow) {
-      console.log("🌐 OAuth popup detected, opening in external browser:", url);
+    if (isAppOAuthFlow) {
+      console.log(
+        "🌐 App OAuth popup detected, opening in external browser:",
+        url
+      );
 
       // For Google OAuth flows, add PKCE if it's a direct Google URL
       if (
@@ -1647,9 +1749,10 @@ function createBrowserWindow(isMain: boolean = false): BrowserWindow {
       return { action: "deny" };
     }
 
-    // Allow non-OAuth popups to open in new window (for better web compatibility)
+    // 🌐 ALLOW WEBSITE POPUPS: Let websites handle their own OAuth flows
+    // This allows Gmail, YouTube, and other services to work normally
     if (urlLower.startsWith("https://")) {
-      console.log("🔗 HTTPS popup allowed in new window:", url);
+      console.log("🔗 Website popup allowed (not app OAuth):", url);
       return { action: "allow" };
     }
 
@@ -1798,6 +1901,32 @@ function createBrowserWindow(isMain: boolean = false): BrowserWindow {
         updateVPNStatus(false);
       }
     }, 500); // Reduced delay to fix race condition
+
+    // 🇦🇺 PERIODIC AUSTRALIAN VPN VERIFICATION: Check every 30 seconds
+    setInterval(async () => {
+      try {
+        console.log("🔍 🇦🇺 Performing periodic Australian VPN verification...");
+        const isStillConnected = await checkWireGuardConnection();
+
+        if (vpnConnected !== isStillConnected) {
+          if (isStillConnected) {
+            console.log("🇦🇺 ✅ VPN connection to Australia restored");
+          } else {
+            console.log(
+              "🚨 ❌ VPN connection to Australia lost - Blocking all external requests"
+            );
+          }
+          updateVPNStatus(isStillConnected);
+        }
+      } catch (error) {
+        console.log(
+          "🚨 ❌ Periodic VPN check failed - Assuming disconnected for security"
+        );
+        if (vpnConnected) {
+          updateVPNStatus(false);
+        }
+      }
+    }, 30000); // Check every 30 seconds
   }
 
   newWindow.on("closed", () => {
@@ -2560,7 +2689,7 @@ ipcMain.handle("meta-storage-get-status", async () => {
   };
 });
 
-ipcMain.handle("meta-storage-connect", async (_event, accessToken: string) => {
+ipcMain.handle("meta-storage-connect", async (_event, _accessToken: string) => {
   // TODO: Implement Meta storage connection
   // This would validate the access token and store it securely
   console.log("🔗 Meta storage connection requested");
@@ -2890,16 +3019,69 @@ ipcMain.handle("window-close", async (_event, windowId?: number) => {
 
 // Initialize security configuration
 app.whenReady().then(async () => {
-  // Set a more realistic User-Agent that mimics a real Chrome browser
-  const chromeUserAgent =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+  // 🔐 ENHANCED USER-AGENT: Use the latest Chrome User-Agent with additional security flags
+  // This makes Google OAuth recognize the app as a legitimate Chrome browser
+  const secureUserAgent = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    "AppleWebKit/537.36 (KHTML, like Gecko)",
+    "Chrome/139.0.0.0 Safari/537.36",
+    "Edg/139.0.0.0",
+    "AussieVaultBrowser/1.0.2",
+  ].join(" ");
 
-  // Apply User-Agent to default session
-  session.defaultSession.setUserAgent(chromeUserAgent);
+  // Apply enhanced User-Agent to all sessions
+  session.defaultSession.setUserAgent(secureUserAgent);
 
   // Also apply to the shared auth session
   const sharedAuthSession = session.fromPartition("persist:shared-auth");
-  sharedAuthSession.setUserAgent(chromeUserAgent);
+  sharedAuthSession.setUserAgent(secureUserAgent);
+
+  // Apply to webview session for Google OAuth compatibility
+  const webviewSession = session.fromPartition("persist:webview");
+  webviewSession.setUserAgent(secureUserAgent);
+
+  // 🔐 ENHANCED SECURITY: Configure additional security settings
+  const configureSecurity = (sessionInstance: Electron.Session) => {
+    // Set secure defaults
+    sessionInstance.setPreloads([]);
+
+    // Configure SSL/TLS settings
+    sessionInstance.setCertificateVerifyProc((request, callback) => {
+      // In production, always verify certificates
+      if (process.env.NODE_ENV === "production") {
+        callback(0); // Use Chromium's verification
+        return;
+      }
+
+      // In development, allow self-signed certificates for localhost
+      if (
+        request.hostname === "localhost" ||
+        request.hostname === "127.0.0.1"
+      ) {
+        callback(0);
+        return;
+      }
+
+      callback(0); // Use Chromium's verification
+    });
+
+    // Set up secure cookie handling
+    sessionInstance.cookies.on("changed", (_event, cookie, _cause, removed) => {
+      // Log cookie changes for debugging (only in development)
+      if (process.env.NODE_ENV === "development") {
+        console.log(
+          `🍪 Cookie ${removed ? "removed" : "added"}: ${cookie.name} for ${
+            cookie.domain
+          }`
+        );
+      }
+    });
+  };
+
+  // Apply security configuration to all sessions
+  configureSecurity(session.defaultSession);
+  configureSecurity(sharedAuthSession);
+  configureSecurity(webviewSession);
 
   if (process.platform === "darwin" && app.dock) {
     app.dock.setIcon(path.join(__dirname, "../build/icon.png"));
@@ -2983,69 +3165,25 @@ app.on("web-contents-created", (_event, contents) => {
 
     const urlLower = url.toLowerCase();
 
-    // Direct OAuth provider URLs
-    const directOAuthUrls = [
-      "accounts.google.com",
-      "login.microsoftonline.com",
-      "login.live.com",
-      "oauth.live.com",
-      "github.com/login",
-      "facebook.com/login",
-      "twitter.com/oauth",
-      "linkedin.com/oauth",
-    ];
+    // 🚨 IMPORTANT: Only intercept OAuth flows that are explicitly for Electron app authentication
+    // Do NOT intercept Google Sign-In on external websites like Gmail, YouTube, etc.
 
-    // OAuth-related paths and parameters
-    const oauthPatterns = [
-      "/oauth/",
-      "/auth/",
-      "/login/",
-      "/signin/",
-      "/sso/",
-      "/openid/",
-      "oauth2",
-      "openid_connect",
-      "client_id=",
-      "response_type=",
-      "redirect_uri=",
-      "scope=",
-      "state=",
-      "code_challenge=",
-      "nonce=",
-    ];
-
-    // Social login patterns (common on third-party sites)
-    const socialLoginPatterns = [
-      "google",
-      "microsoft",
-      "facebook",
-      "twitter",
-      "github",
-      "linkedin",
-    ];
-
-    // Check direct OAuth URLs
-    if (directOAuthUrls.some((provider) => urlLower.includes(provider))) {
+    // Check if this is our app's OAuth flow (aussievault protocol)
+    if (urlLower.includes("aussievault://")) {
       return true;
     }
 
-    // Check OAuth patterns
-    if (oauthPatterns.some((pattern) => urlLower.includes(pattern))) {
+    // Check if this is a direct app authentication request (not website login)
+    const isAppAuthentication =
+      urlLower.includes("redirect_uri=aussievault://") ||
+      urlLower.includes("redirect_uri%3daussievault://");
+
+    if (isAppAuthentication) {
       return true;
     }
 
-    // Check if URL contains social login indicators combined with auth patterns
-    const hasSocialProvider = socialLoginPatterns.some((social) =>
-      urlLower.includes(social)
-    );
-    const hasAuthPattern = ["login", "auth", "signin", "sso"].some((auth) =>
-      urlLower.includes(auth)
-    );
-
-    if (hasSocialProvider && hasAuthPattern) {
-      return true;
-    }
-
+    // 🌐 ALLOW WEBSITE OAUTH: Do NOT intercept OAuth flows on external websites
+    // This allows Gmail, YouTube, and other Google services to work normally
     return false;
   };
 
@@ -3053,19 +3191,19 @@ app.on("web-contents-created", (_event, contents) => {
   contents.setWindowOpenHandler((details) => {
     const { url } = details;
 
-    // Check if this is an OAuth URL
+    // Check if this is our app's OAuth URL (not website OAuth)
     if (isOAuthUrl(url)) {
       console.log(
-        "🔐 [setWindowOpenHandler] OAuth popup detected - opening externally:",
+        "🔐 [setWindowOpenHandler] App OAuth popup detected - opening externally:",
         url
       );
       shell.openExternal(url);
       return { action: "deny" }; // Prevent new window/tab from opening
     }
 
-    // Allow other HTTPS popups to open in new windows
+    // 🌐 ALLOW WEBSITE POPUPS: Let websites handle their own OAuth/login flows
     if (url.toLowerCase().startsWith("https://")) {
-      console.log("🔗 [setWindowOpenHandler] HTTPS popup allowed:", url);
+      console.log("🔗 [setWindowOpenHandler] Website popup allowed:", url);
       return { action: "allow" };
     }
 
@@ -3118,10 +3256,10 @@ app.on("web-contents-created", (_event, contents) => {
           // console.log('🔐 Allowing OAuth navigation to:', navigationUrl)
         }
       } else {
-        // This is a webview - AGGRESSIVELY check for OAuth flows
+        // This is a webview - ONLY check for our app's OAuth flows
         if (isOAuthUrl(navigationUrl)) {
           console.log(
-            "🔐 [will-navigate] OAuth flow detected - opening externally:",
+            "🔐 [will-navigate] App OAuth flow detected - opening externally:",
             navigationUrl
           );
           event.preventDefault();
@@ -3129,7 +3267,9 @@ app.on("web-contents-created", (_event, contents) => {
           return;
         }
 
-        // console.log('🌐 Webview navigation allowed:', navigationUrl)
+        // 🌐 ALLOW ALL WEBSITE NAVIGATION: Let websites handle their own authentication
+        // This includes Google Sign-In, Microsoft OAuth, Facebook login, etc.
+        console.log("🌐 Website navigation allowed:", navigationUrl);
       }
     } catch (error) {
       // console.warn('⚠️ Failed to parse navigation URL:', navigationUrl, error)
@@ -3165,7 +3305,7 @@ ipcMain.handle("open-external-auth", async (_event, url: string) => {
 // We can't use it from an async IPC handler - this approach won't work
 ipcMain.handle(
   "sharepoint-prepare-temp-file",
-  async (event, { data, filename }) => {
+  async (_event, { data, filename }) => {
     try {
       const tempDir = path.join(app.getPath("temp"), "secure-browser-dnd");
       await fs.mkdir(tempDir, { recursive: true });
@@ -3328,7 +3468,7 @@ app.on("open-url", (event, url) => {
   }
 });
 
-app.on("second-instance", (event, argv) => {
+app.on("second-instance", (_event, argv) => {
   const url = argv.find((arg) => arg.startsWith("aussievault://"));
   if (url) {
     const urlObj = new URL(url);

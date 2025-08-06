@@ -3576,7 +3576,7 @@ function generatePKCECodes() {
   const codeChallenge = base64URLEncode(sha256(codeVerifier));
   return { codeVerifier, codeChallenge };
 }
-const VPN_CHECK_TIMEOUT = 1e4;
+const VPN_CHECK_TIMEOUT = 3e4;
 const PROCESS_TIMEOUT = 3e4;
 const IP_GEOLOCATION_API = "https://ipinfo.io/json";
 const AUSTRALIAN_COUNTRY_CODES = ["AU", "Australia"];
@@ -3619,7 +3619,26 @@ let vpnConnected = false;
 let wireguardProcess = null;
 const pendingDownloads = /* @__PURE__ */ new Map();
 const updateVPNStatus = (connected) => {
+  const wasConnected = vpnConnected;
   vpnConnected = connected;
+  if (wasConnected !== connected) {
+    if (connected) {
+      console.log(
+        "🇦🇺 ✅ VPN STATUS: Connected to Australian VPN - Browsing ENABLED"
+      );
+    } else {
+      console.log(
+        "🚨 ❌ VPN STATUS: NOT connected to Australian VPN - Browsing BLOCKED"
+      );
+      console.log(
+        "⚠️  All external website access has been disabled for security"
+      );
+      console.log("💡 Connect to Australian VPN server to enable browsing");
+    }
+  }
+  console.log(
+    `📡 🇦🇺 VPN Status: ${connected ? "✅ AUSTRALIAN VPN CONNECTED - All HTTPS requests allowed" : "❌ NO AUSTRALIAN VPN - All external requests BLOCKED"}`
+  );
   windows.forEach((window2) => {
     if (window2 && !window2.isDestroyed()) {
       window2.webContents.send("vpn-status-changed", connected);
@@ -3657,7 +3676,6 @@ const connectWireGuard = async () => {
       await promises.access(resolvedPath);
     } catch (error) {
     }
-    const _platformInfo = getPlatformInfo();
     const isConnected = await checkWireGuardConnection();
     if (isConnected) {
       return true;
@@ -3697,234 +3715,113 @@ const establishWireGuardConnection = async (configPath) => {
   }
 };
 const connectWireGuardLinux = async (configPath) => {
-  return new Promise((resolve) => {
+  return new Promise((resolve2) => {
     const process2 = spawn("wg-quick", ["up", configPath], {
       stdio: ["pipe", "pipe", "pipe"]
     });
     process2.on("exit", (code) => {
-      resolve(code === 0);
+      resolve2(code === 0);
     });
     process2.on("error", (_error) => {
-      resolve(false);
+      resolve2(false);
     });
-    setTimeout(() => resolve(false), PROCESS_TIMEOUT);
+    setTimeout(() => resolve2(false), PROCESS_TIMEOUT);
   });
 };
 const connectWireGuardMacOS = async (configPath) => {
-  return new Promise((resolve) => {
+  return new Promise((resolve2) => {
     const process2 = spawn("wg-quick", ["up", configPath], {
       stdio: ["pipe", "pipe", "pipe"]
     });
     process2.on("exit", (code) => {
-      resolve(code === 0);
+      resolve2(code === 0);
     });
     process2.on("error", () => {
-      resolve(false);
+      resolve2(false);
     });
-    setTimeout(() => resolve(false), PROCESS_TIMEOUT);
+    setTimeout(() => resolve2(false), PROCESS_TIMEOUT);
   });
 };
 const connectWireGuardWindows = async (_configPath) => {
   return false;
 };
 const checkWireGuardConnection = async () => {
-  const platform = process.platform;
   try {
-    switch (platform) {
-      case "linux":
-        return await checkWireGuardLinux();
-      case "darwin":
-        return await checkWireGuardMacOS();
-      case "win32":
-        return await checkWireGuardWindows();
-      default:
-        console.warn(`⚠️ Unsupported platform: ${platform}`);
-        return false;
+    const isAustralian = await checkCurrentIP();
+    if (isAustralian) {
+      console.log("✅ IP geolocation check PASSED - Australian VPN confirmed");
+      return true;
+    } else {
+      console.log("❌ IP geolocation check FAILED - Not connected to Australian VPN");
+      return false;
     }
   } catch (error) {
-    console.error("❌ Error checking WireGuard status:", error);
+    console.log("❌ VPN connection check error:", error);
     return false;
   }
-};
-const checkWireGuardLinux = async () => {
-  return new Promise((resolve) => {
-    const process2 = spawn("wg", ["show"], {
-      stdio: ["pipe", "pipe", "pipe"]
-    });
-    let output = "";
-    process2.stdout.on("data", (data) => {
-      output += data.toString();
-    });
-    process2.on("exit", (code) => {
-      if (code === 0 && output.trim()) {
-        resolve(true);
-      } else {
-        resolve(false);
-      }
-    });
-    process2.on("error", () => resolve(false));
-    setTimeout(() => resolve(false), 5e3);
-  });
-};
-const checkWireGuardMacOS = async () => {
-  return new Promise((resolve) => {
-    const process2 = spawn("wg", ["show"], {
-      stdio: ["pipe", "pipe", "pipe"]
-    });
-    let output = "";
-    process2.stdout.on("data", (data) => {
-      output += data.toString();
-    });
-    process2.on("exit", (code) => {
-      if (code === 0 && output.trim()) {
-        resolve(true);
-      } else {
-        checkMacOSNetworkInterfaces().then(resolve);
-      }
-    });
-    process2.on("error", () => {
-      checkMacOSNetworkInterfaces().then(resolve);
-    });
-    setTimeout(() => resolve(false), 5e3);
-  });
-};
-const checkMacOSNetworkInterfaces = async () => {
-  return new Promise((resolve) => {
-    const process2 = spawn("ifconfig", [], {
-      stdio: ["pipe", "pipe", "pipe"]
-    });
-    let output = "";
-    process2.stdout.on("data", (data) => {
-      output += data.toString();
-    });
-    process2.on("exit", () => {
-      const hasWG = output.includes("utun") || output.includes("tun") || output.includes("wg");
-      resolve(hasWG);
-    });
-    process2.on("error", () => resolve(false));
-    setTimeout(() => resolve(false), 5e3);
-  });
-};
-const checkWireGuardWindows = async () => {
-  const ipResult = await checkCurrentIP();
-  if (!ipResult) {
-    await checkWireGuardCLI();
-    await checkWindowsNetworkInterfaces();
-    await checkRoutingTable();
-    return false;
-  }
-  await checkWireGuardCLI();
-  await checkWindowsNetworkInterfaces();
-  await checkRoutingTable();
-  return true;
-};
-const checkWireGuardCLI = async () => {
-  return new Promise((resolve) => {
-    const wgProcess = spawn("wg", ["show"], {
-      stdio: ["pipe", "pipe", "pipe"]
-    });
-    let wgOutput = "";
-    wgProcess.stdout.on("data", (data) => {
-      wgOutput += data.toString();
-    });
-    wgProcess.on("exit", (code) => {
-      if (code === 0 && wgOutput.trim()) {
-        resolve(true);
-        return;
-      }
-      resolve(false);
-    });
-    wgProcess.on("error", (error) => {
-      resolve(false);
-    });
-    setTimeout(() => {
-      resolve(false);
-    }, 3e3);
-  });
-};
-const checkWindowsNetworkInterfaces = async () => {
-  return new Promise((resolve) => {
-    const netshProcess = spawn("netsh", ["interface", "show", "interface"], {
-      stdio: ["pipe", "pipe", "pipe"]
-    });
-    let output = "";
-    netshProcess.stdout.on("data", (data) => {
-      output += data.toString();
-    });
-    netshProcess.on("exit", () => {
-      const hasWireGuard = output.toLowerCase().includes("wireguard") || output.toLowerCase().includes("wg") || output.toLowerCase().includes("tun");
-      resolve(hasWireGuard);
-    });
-    netshProcess.on("error", (error) => {
-      resolve(false);
-    });
-    setTimeout(() => {
-      resolve(false);
-    }, 3e3);
-  });
-};
-const checkRoutingTable = async () => {
-  return new Promise((resolve) => {
-    const endpoint = process.env.WIREGUARD_ENDPOINT || "134.199.169.102:59926";
-    const serverIP = endpoint.split(":")[0];
-    const routeProcess = spawn("route", ["print"], {
-      stdio: ["pipe", "pipe", "pipe"]
-    });
-    let output = "";
-    routeProcess.stdout.on("data", (data) => {
-      output += data.toString();
-    });
-    routeProcess.on("exit", () => {
-      const hasServerRoute = output.includes(serverIP);
-      resolve(hasServerRoute);
-    });
-    routeProcess.on("error", (error) => {
-      resolve(false);
-    });
-    setTimeout(() => {
-      resolve(false);
-    }, 3e3);
-  });
 };
 const checkCurrentIP = async () => {
-  return new Promise((resolve) => {
-    const psCommand = `(Invoke-WebRequest -Uri "${IP_GEOLOCATION_API}" -UseBasicParsing).Content | ConvertFrom-Json | ConvertTo-Json -Compress`;
-    const psProcess = spawn("powershell", ["-Command", psCommand], {
-      stdio: ["pipe", "pipe", "pipe"]
-    });
-    let output = "";
-    psProcess.stdout.on("data", (data) => {
-      output += data.toString();
-    });
-    psProcess.on("exit", () => {
-      try {
-        const ipInfo = JSON.parse(output.trim());
-        const _currentIP = ipInfo.ip;
-        const country = ipInfo.country;
-        const _region = ipInfo.region;
-        const _city = ipInfo.city;
+  console.log(
+    "🔍 🇦🇺 AUSTRALIAN IP DETECTION: Starting bulletproof IP detection with multiple APIs..."
+  );
+  const apis = [
+    "https://ipinfo.io/json",
+    "https://ipapi.co/json",
+    "https://ip-api.com/json",
+    "https://freegeoip.app/json/",
+    "https://extreme-ip-lookup.com/json/"
+  ];
+  for (const api of apis) {
+    try {
+      const response = await fetch(api, {
+        signal: AbortSignal.timeout(8e3),
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+      });
+      if (!response.ok) continue;
+      const data = await response.json();
+      const ip = data.ip || data.query || "";
+      const country = data.country || data.country_name || data.countryCode || "";
+      const region = data.region || data.regionName || "";
+      const city = data.city || "";
+      if (country) {
+        console.log(`🔍 Current public IP: ${ip}`);
+        console.log(`🔍 Location: ${city}, ${region}, ${country}`);
         const isAustralianIP = isAustralianCountry(country);
         if (isAustralianIP) {
+          console.log("🇦🇺 ✅ VERIFIED: Connected via Australian VPN!");
+          console.log(`📍 Australian location confirmed: ${city}, ${region}`);
+          return true;
         } else {
+          console.log("🚨 ❌ SECURITY VIOLATION: Not connected to Australian VPN!");
+          console.log(`🚫 Current location: ${country} - BROWSING BLOCKED`);
+          console.log("⚠️  Please connect to Australian VPN server to continue");
+          return false;
         }
-        resolve(isAustralianIP);
-      } catch (error) {
-        console.log("🔧 IP check failed, assuming Australian for development");
-        resolve(true);
       }
+    } catch (error) {
+      console.log(`🔍 API ${api} failed, trying next...`);
+      continue;
+    }
+  }
+  console.log("🔄 PowerShell command failed, trying simpler IP check...");
+  try {
+    const fallbackResponse = await fetch("https://api.ipify.org?format=json", {
+      signal: AbortSignal.timeout(5e3)
     });
-    psProcess.on("error", (_error) => {
-      console.log(
-        "🔧 PowerShell process error, assuming Australian for development"
-      );
-      resolve(true);
-    });
-    setTimeout(() => {
-      console.log("🔧 IP check timed out, assuming Australian for development");
-      psProcess.kill();
-      resolve(true);
-    }, VPN_CHECK_TIMEOUT);
-  });
+    if (fallbackResponse.ok) {
+      const data = await fallbackResponse.json();
+      console.log(`🔍 Got real IP via fallback: ${data.ip}`);
+      console.log("⚠️  Could not verify country - assuming non-Australian for security");
+      return false;
+    }
+  } catch (error) {
+    console.log("🔍 All IP detection methods failed");
+  }
+  console.log("🚨 ❌ IP check failed - BLOCKING browsing for security");
+  console.log("⚠️  Unable to verify Australian IP - SECURITY MEASURE ACTIVATED");
+  return false;
 };
 const disconnectWireGuard = async () => {
   try {
@@ -3947,24 +3844,24 @@ const disconnectWireGuard = async () => {
   }
 };
 const disconnectWireGuardUnix = async (configPath) => {
-  return new Promise((resolve) => {
+  return new Promise((resolve2) => {
     const downProcess = spawn("wg-quick", ["down", configPath], {
       stdio: ["pipe", "pipe", "pipe"]
     });
     downProcess.on("exit", (code) => {
       wireguardProcess = null;
       if (code === 0) {
-        resolve(true);
+        resolve2(true);
       } else {
         console.error(`❌ WireGuard disconnection failed with code: ${code}`);
-        resolve(false);
+        resolve2(false);
       }
     });
     downProcess.on("error", (error) => {
       console.error("❌ WireGuard disconnect error:", error);
-      resolve(false);
+      resolve2(false);
     });
-    setTimeout(() => resolve(false), 15e3);
+    setTimeout(() => resolve2(false), 15e3);
   });
 };
 const disconnectWireGuardWindows = async () => {
@@ -3972,8 +3869,55 @@ const disconnectWireGuardWindows = async () => {
 };
 const configureSecureSession = () => {
   const defaultSession = session.defaultSession;
+  const securityHeaders = {
+    "Content-Security-Policy": [
+      "default-src 'self' https:",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://accounts.google.com https://*.googleapis.com https://ssl.gstatic.com",
+      "style-src 'self' 'unsafe-inline' https://accounts.google.com https://fonts.googleapis.com",
+      "img-src 'self' data: https: blob:",
+      "font-src 'self' https://fonts.gstatic.com",
+      "connect-src 'self' https: wss: ws:",
+      "frame-src 'self' https://accounts.google.com https://*.google.com",
+      "object-src 'none'",
+      "base-uri 'self'"
+    ].join("; "),
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "SAMEORIGIN",
+    "X-XSS-Protection": "1; mode=block",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "geolocation=(), microphone=(), camera=(), payment=(), usb=()"
+  };
+  const applySecurity = (sessionInstance) => {
+    sessionInstance.webRequest.onHeadersReceived((details, callback) => {
+      const responseHeaders = details.responseHeaders || {};
+      Object.entries(securityHeaders).forEach(([header, value]) => {
+        responseHeaders[header] = [value];
+      });
+      callback({ responseHeaders });
+    });
+    sessionInstance.setPermissionRequestHandler(
+      (_webContents, permission, callback) => {
+        const allowedPermissions = [
+          "clipboard-read",
+          "clipboard-write",
+          "fullscreen"
+        ];
+        callback(allowedPermissions.includes(permission));
+      }
+    );
+    sessionInstance.webRequest.onBeforeRequest((details, callback) => {
+      const url = details.url.toLowerCase();
+      if (url.startsWith("http://") && !url.includes("localhost") && !url.includes("127.0.0.1")) {
+        callback({ cancel: true });
+        return;
+      }
+      callback({ cancel: false });
+    });
+  };
   const sharedAuthSession = session.fromPartition("persist:shared-auth");
+  applySecurity(sharedAuthSession);
   const webviewSession = session.fromPartition("persist:webview");
+  console.log("🍪 Configuring persistent cookies for webview session...");
   try {
     webviewSession.webRequest.onBeforeRequest(null);
     webviewSession.webRequest.onBeforeSendHeaders(null);
@@ -3988,13 +3932,16 @@ const configureSecureSession = () => {
       (e == null ? void 0 : e.message) || "Unknown error"
     );
   }
+  webviewSession.setPermissionRequestHandler(
+    (_webContents, _permission, callback) => {
+      callback(true);
+    }
+  );
   try {
     webviewSession.clearStorageData({
       storages: [
-        "cookies",
         "filesystem",
         "indexdb",
-        "localstorage",
         "shadercache",
         "websql",
         "serviceworkers",
@@ -4002,7 +3949,7 @@ const configureSecureSession = () => {
       ]
     }).then(() => {
       console.log(
-        "🧹 Webview session storage cleared for unrestricted browsing"
+        "🧹 Webview session temporary storage cleared (cookies preserved)"
       );
     });
   } catch (e) {
@@ -4018,24 +3965,59 @@ const configureSecureSession = () => {
       callback({ cancel: false });
       return;
     }
+    if (url.includes("ipinfo.io") || url.includes("ipapi.co") || url.includes("api.ipify.org") || url.includes("checkip.amazonaws.com") || url.includes("icanhazip.com") || url.includes("httpbin.org/ip") || url.includes("myexternalip.com") || url.includes("ipify.org") || url.includes("whatismyipaddress.com") || url.includes("ip-api.com") || url.includes("geoip-db.com") || url.includes("freegeoip.app") || url.includes("extreme-ip-lookup.com")) {
+      console.log(
+        "✅ 🔍 SHARED AUTH: ALLOWING IP geolocation request (NEVER BLOCKED):",
+        details.url
+      );
+      callback({ cancel: false });
+      return;
+    }
+    if (!vpnConnected && url.startsWith("https://")) {
+      console.log(
+        "🚫 🇦🇺 SHARED AUTH: BLOCKING external request - Australian VPN required:",
+        details.url
+      );
+      console.log(
+        "⚠️  Connect to Australian VPN server to access external websites"
+      );
+      callback({ cancel: true });
+      return;
+    }
     if (url.includes("clerk.dev") || url.includes("clerk.com") || url.includes("clerk.accounts.dev")) {
+      console.log(
+        "✅ 🇦🇺 SHARED AUTH: Allowing Clerk auth request via Australian VPN:",
+        details.url
+      );
       callback({ cancel: false });
       return;
     }
     if (url.startsWith("http://")) {
+      console.log(
+        "🚫 SHARED AUTH: BLOCKING insecure HTTP request:",
+        details.url
+      );
       callback({ cancel: true });
       return;
     }
     if (url.startsWith("https://")) {
+      console.log(
+        "✅ 🇦🇺 SHARED AUTH: Allowing HTTPS auth request via Australian VPN:",
+        details.url
+      );
       callback({ cancel: false });
       return;
     }
-    callback({ cancel: false });
+    console.log(
+      "🚫 SHARED AUTH: BLOCKING unknown protocol request:",
+      details.url
+    );
+    callback({ cancel: true });
   });
   sharedAuthSession.webRequest.onBeforeSendHeaders((details, callback) => {
-    let userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    let userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
     if (details.url.includes("accounts.google.com") || details.url.includes("googleapis.com")) {
-      userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0";
+      userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0";
     }
     callback({
       requestHeaders: {
@@ -4049,21 +4031,54 @@ const configureSecureSession = () => {
   });
   webviewSession.webRequest.onBeforeRequest((details, callback) => {
     const url = details.url.toLowerCase();
+    if (url.includes("localhost") || url.includes("127.0.0.1") || url.startsWith("file://") || url.startsWith("chrome-extension://") || url.startsWith("devtools://")) {
+      callback({ cancel: false });
+      return;
+    }
+    if (url.includes("ipinfo.io") || url.includes("ipapi.co") || url.includes("api.ipify.org") || url.includes("checkip.amazonaws.com") || url.includes("icanhazip.com") || url.includes("httpbin.org/ip") || url.includes("myexternalip.com") || url.includes("ipify.org") || url.includes("whatismyipaddress.com") || url.includes("ip-api.com") || url.includes("geoip-db.com") || url.includes("freegeoip.app") || url.includes("extreme-ip-lookup.com")) {
+      console.log(
+        "✅ 🔍 WEBVIEW: ALLOWING IP geolocation request (NEVER BLOCKED):",
+        details.url
+      );
+      callback({ cancel: false });
+      return;
+    }
+    if (!vpnConnected && url.startsWith("https://")) {
+      console.log(
+        "🚫 🇦🇺 WEBVIEW: BLOCKING external request - Australian VPN required:",
+        details.url
+      );
+      console.log(
+        "⚠️  Connect to Australian VPN server to access external websites"
+      );
+      callback({ cancel: true });
+      return;
+    }
     if (url.includes("google.com") || url.includes("microsoft.com") || url.includes("clerk") || url.includes("oauth")) {
       console.log(
-        "🌐 WEBVIEW AUTH: Allowing critical auth request:",
+        "🌐 🇦🇺 WEBVIEW AUTH: Allowing critical auth request via Australian VPN:",
         details.url
       );
     }
-    callback({ cancel: false });
+    if (url.startsWith("https://")) {
+      callback({ cancel: false });
+      return;
+    }
+    if (url.startsWith("http://")) {
+      console.log("🚫 WEBVIEW: BLOCKING insecure HTTP request:", details.url);
+      callback({ cancel: true });
+      return;
+    }
+    console.log("🚫 WEBVIEW: BLOCKING unknown protocol request:", details.url);
+    callback({ cancel: true });
   });
   webviewSession.webRequest.onBeforeSendHeaders((details, callback) => {
     const url = details.url.toLowerCase();
-    let userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+    let userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
     if (url.includes("google.com") || url.includes("googleapis.com")) {
-      userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+      userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
     } else if (url.includes("microsoft.com") || url.includes("live.com")) {
-      userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0";
+      userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0";
     }
     callback({
       requestHeaders: {
@@ -4127,12 +4142,12 @@ const configureSecureSession = () => {
     }
     const downloadId = `download_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     event.preventDefault();
-    const downloadPromise = new Promise((resolve, reject) => {
-      pendingDownloads.set(downloadId, { item, resolve, reject });
+    const downloadPromise = new Promise((resolve2, reject) => {
+      pendingDownloads.set(downloadId, { item, resolve: resolve2, reject });
       setTimeout(() => {
         if (pendingDownloads.has(downloadId)) {
           pendingDownloads.delete(downloadId);
-          resolve("local");
+          resolve2("local");
         }
       }, 3e4);
     });
@@ -4176,7 +4191,7 @@ const configureSecureSession = () => {
     });
   };
   const handleLocalDownload = async (downloadId, item) => {
-    return new Promise((resolve) => {
+    return new Promise((resolve2) => {
       const downloadStartedData = {
         id: downloadId,
         filename: item.getFilename(),
@@ -4218,7 +4233,7 @@ const configureSecureSession = () => {
             window2.webContents.send("download-completed", completedData);
           }
         });
-        resolve();
+        resolve2();
       });
       item.resume();
     });
@@ -4242,8 +4257,8 @@ const configureSecureSession = () => {
         `temp_${downloadId}_${item.getFilename()}`
       );
       item.setSavePath(tempPath);
-      return new Promise((resolve, reject) => {
-        item.on("updated", (_event, state) => {
+      return new Promise((resolve2, reject) => {
+        item.on("updated", (_event, _state) => {
           const progressData = {
             id: downloadId,
             filename: item.getFilename(),
@@ -4286,7 +4301,7 @@ const configureSecureSession = () => {
                   window2.webContents.send("download-completed", completedData);
                 }
               });
-              resolve();
+              resolve2();
             } catch (uploadError) {
               console.error("❌ Meta storage upload failed:", uploadError);
               const errorData = {
@@ -4326,7 +4341,7 @@ const configureSecureSession = () => {
       await handleLocalDownload(downloadId, item);
     }
   };
-  const uploadToMetaStorage = async (downloadId, filePath, filename) => {
+  const uploadToMetaStorage = async (downloadId, _filePath, filename) => {
     windows.forEach((window2) => {
       if (window2 && !window2.isDestroyed()) {
         window2.webContents.send("download-progress", {
@@ -4338,7 +4353,7 @@ const configureSecureSession = () => {
         });
       }
     });
-    await new Promise((resolve) => setTimeout(resolve, 2e3));
+    await new Promise((resolve2) => setTimeout(resolve2, 2e3));
     console.log(`🔄 Meta storage upload simulated for: ${filename}`);
     return { fileId: `meta_${downloadId}`, success: true };
   };
@@ -4471,11 +4486,34 @@ const configureSecureSession = () => {
   };
   defaultSession.webRequest.onBeforeRequest((details, callback) => {
     const url = details.url.toLowerCase();
-    if (url.startsWith("http://") && !url.includes("localhost") && !url.includes("127.0.0.1")) {
+    if (url.includes("localhost") || url.includes("127.0.0.1") || url.startsWith("file://") || url.startsWith("chrome-extension://") || url.startsWith("devtools://")) {
+      callback({ cancel: false });
+      return;
+    }
+    if (url.includes("ipinfo.io") || url.includes("ipapi.co") || url.includes("api.ipify.org") || url.includes("checkip.amazonaws.com") || url.includes("icanhazip.com") || url.includes("httpbin.org/ip") || url.includes("myexternalip.com") || url.includes("ipify.org") || url.includes("whatismyipaddress.com") || url.includes("ip-api.com") || url.includes("geoip-db.com") || url.includes("freegeoip.app") || url.includes("extreme-ip-lookup.com")) {
+      console.log(
+        "✅ 🔍 ALLOWING IP geolocation request (NEVER BLOCKED):",
+        details.url
+      );
+      callback({ cancel: false });
+      return;
+    }
+    if (vpnConnected && url.startsWith("https://")) {
+      callback({ cancel: false });
+      return;
+    }
+    if (url.startsWith("http://")) {
+      console.log("🚫 BLOCKING insecure HTTP request:", details.url);
       callback({ cancel: true });
       return;
     }
-    callback({ cancel: false });
+    if (!vpnConnected && url.startsWith("https://")) {
+      console.log("🚫 🇦🇺 BLOCKING - Australian VPN required:", details.url);
+      callback({ cancel: true });
+      return;
+    }
+    console.log("🚫 BLOCKING unknown protocol request:", details.url);
+    callback({ cancel: true });
   });
   defaultSession.webRequest.onHeadersReceived((details, callback) => {
     const url = details.url.toLowerCase();
@@ -4504,9 +4542,9 @@ const configureSecureSession = () => {
   });
   defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
     const url = details.url.toLowerCase();
-    let userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    let userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
     if (url.includes("accounts.google.com") || url.includes("googleapis.com")) {
-      userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0";
+      userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0";
     }
     callback({
       requestHeaders: {
@@ -4565,16 +4603,15 @@ function createBrowserWindow(isMain = false) {
   newWindow.webContents.setWindowOpenHandler((details) => {
     const url = details.url;
     const urlLower = url.toLowerCase();
-    const isOAuthFlow = (
-      // Direct Google OAuth URLs
-      urlLower.includes("accounts.google.com") || urlLower.includes("oauth.google.com") || // Microsoft OAuth URLs
-      urlLower.includes("login.microsoftonline.com") || urlLower.includes("login.live.com") || // Other OAuth providers
-      urlLower.includes("oauth") || urlLower.includes("openid") || urlLower.includes("/auth/") || urlLower.includes("/login/") || urlLower.includes("/signin/") || urlLower.includes("sso") || // Common OAuth parameters in URL
-      urlLower.includes("client_id=") || urlLower.includes("response_type=") || urlLower.includes("redirect_uri=") || urlLower.includes("scope=") || urlLower.includes("state=") || // Social login patterns
-      urlLower.includes("google") && (urlLower.includes("login") || urlLower.includes("auth")) || urlLower.includes("microsoft") && (urlLower.includes("login") || urlLower.includes("auth")) || urlLower.includes("facebook") && (urlLower.includes("login") || urlLower.includes("auth")) || urlLower.includes("twitter") && (urlLower.includes("login") || urlLower.includes("auth")) || urlLower.includes("github") && (urlLower.includes("login") || urlLower.includes("auth"))
+    const isAppOAuthFlow = (
+      // Only intercept if it's specifically redirecting to our app
+      urlLower.includes("redirect_uri=aussievault://") || urlLower.includes("redirect_uri%3daussievault://") || urlLower.includes("aussievault://")
     );
-    if (isOAuthFlow) {
-      console.log("🌐 OAuth popup detected, opening in external browser:", url);
+    if (isAppOAuthFlow) {
+      console.log(
+        "🌐 App OAuth popup detected, opening in external browser:",
+        url
+      );
       if (urlLower.includes("accounts.google.com") && !urlLower.includes("code_challenge")) {
         try {
           const { codeVerifier, codeChallenge } = generatePKCECodes();
@@ -4596,7 +4633,7 @@ function createBrowserWindow(isMain = false) {
       return { action: "deny" };
     }
     if (urlLower.startsWith("https://")) {
-      console.log("🔗 HTTPS popup allowed in new window:", url);
+      console.log("🔗 Website popup allowed (not app OAuth):", url);
       return { action: "allow" };
     }
     console.log("🚫 Popup blocked for security:", url);
@@ -4703,6 +4740,29 @@ function createBrowserWindow(isMain = false) {
         updateVPNStatus(false);
       }
     }, 500);
+    setInterval(async () => {
+      try {
+        console.log("🔍 🇦🇺 Performing periodic Australian VPN verification...");
+        const isStillConnected = await checkWireGuardConnection();
+        if (vpnConnected !== isStillConnected) {
+          if (isStillConnected) {
+            console.log("🇦🇺 ✅ VPN connection to Australia restored");
+          } else {
+            console.log(
+              "🚨 ❌ VPN connection to Australia lost - Blocking all external requests"
+            );
+          }
+          updateVPNStatus(isStillConnected);
+        }
+      } catch (error) {
+        console.log(
+          "🚨 ❌ Periodic VPN check failed - Assuming disconnected for security"
+        );
+        if (vpnConnected) {
+          updateVPNStatus(false);
+        }
+      }
+    }, 3e4);
   }
   newWindow.on("closed", () => {
     const index = windows.indexOf(newWindow);
@@ -4914,7 +4974,7 @@ ipcMain.handle(
   async () => {
     try {
       const psCommand = `(Invoke-WebRequest -Uri "${IP_GEOLOCATION_API}" -UseBasicParsing).Content | ConvertFrom-Json | ConvertTo-Json -Compress`;
-      return new Promise((resolve) => {
+      return new Promise((resolve2) => {
         const psProcess = spawn("powershell", ["-Command", psCommand], {
           stdio: ["pipe", "pipe", "pipe"]
         });
@@ -4944,7 +5004,7 @@ ipcMain.handle(
                 const realIP = fallbackOutput.trim();
                 if (realIP && realIP.match(/^\d+\.\d+\.\d+\.\d+$/)) {
                   console.log(`🔍 Got real IP via fallback: ${realIP}`);
-                  resolve({
+                  resolve2({
                     ip: realIP,
                     country: "AU",
                     // Assume AU since you're using the app
@@ -4954,7 +5014,7 @@ ipcMain.handle(
                     isAustralia: true
                   });
                 } else {
-                  resolve({
+                  resolve2({
                     ip: "Unknown",
                     country: "Unknown",
                     countryName: "Unknown",
@@ -4965,7 +5025,7 @@ ipcMain.handle(
                 }
               });
               fallbackProcess.on("error", () => {
-                resolve({
+                resolve2({
                   ip: "Unknown",
                   country: "Unknown",
                   countryName: "Unknown",
@@ -4988,7 +5048,7 @@ ipcMain.handle(
             console.log(
               `🔍 Real IP check result: ${result.ip} (${result.city}, ${result.countryName})`
             );
-            resolve(result);
+            resolve2(result);
           } catch (_error) {
             console.log("🔧 Failed to parse IP info, trying simpler check...");
             const simpleCommand = `(Invoke-WebRequest -Uri "https://ipinfo.io/ip" -UseBasicParsing).Content.Trim()`;
@@ -5007,7 +5067,7 @@ ipcMain.handle(
               const realIP = fallbackOutput.trim();
               if (realIP && realIP.match(/^\d+\.\d+\.\d+\.\d+$/)) {
                 console.log(`🔍 Got real IP via final fallback: ${realIP}`);
-                resolve({
+                resolve2({
                   ip: realIP,
                   country: "AU",
                   // Assume AU since you're using the app
@@ -5017,7 +5077,7 @@ ipcMain.handle(
                   isAustralia: true
                 });
               } else {
-                resolve({
+                resolve2({
                   ip: "Unknown",
                   country: "Unknown",
                   countryName: "Unknown",
@@ -5045,7 +5105,7 @@ ipcMain.handle(
             const realIP = altOutput.trim();
             if (realIP && realIP.match(/^\d+\.\d+\.\d+\.\d+$/)) {
               console.log(`🔍 Got real IP via alternative method: ${realIP}`);
-              resolve({
+              resolve2({
                 ip: realIP,
                 country: "AU",
                 countryName: "Australia",
@@ -5054,7 +5114,7 @@ ipcMain.handle(
                 isAustralia: true
               });
             } else {
-              resolve({
+              resolve2({
                 ip: "Unknown",
                 country: "Unknown",
                 countryName: "Unknown",
@@ -5065,7 +5125,7 @@ ipcMain.handle(
             }
           });
           altProcess.on("error", () => {
-            resolve({
+            resolve2({
               ip: "Unknown",
               country: "Unknown",
               countryName: "Unknown",
@@ -5092,7 +5152,7 @@ ipcMain.handle(
               console.log(
                 `🔍 Got real IP via final timeout fallback: ${realIP}`
               );
-              resolve({
+              resolve2({
                 ip: realIP,
                 country: "AU",
                 countryName: "Australia",
@@ -5101,7 +5161,7 @@ ipcMain.handle(
                 isAustralia: true
               });
             } else {
-              resolve({
+              resolve2({
                 ip: "Unknown",
                 country: "Unknown",
                 countryName: "Unknown",
@@ -5112,7 +5172,7 @@ ipcMain.handle(
             }
           });
           finalProcess.on("error", () => {
-            resolve({
+            resolve2({
               ip: "Unknown",
               country: "Unknown",
               countryName: "Unknown",
@@ -5313,9 +5373,9 @@ ipcMain.handle("meta-storage-get-status", async () => {
     storageQuota: null
   };
 });
-ipcMain.handle("meta-storage-connect", async (_event, accessToken) => {
+ipcMain.handle("meta-storage-connect", async (_event, _accessToken) => {
   console.log("🔗 Meta storage connection requested");
-  await new Promise((resolve) => setTimeout(resolve, 1e3));
+  await new Promise((resolve2) => setTimeout(resolve2, 1e3));
   return {
     success: true,
     accountName: "User Meta Account",
@@ -5566,10 +5626,42 @@ ipcMain.handle("window-close", async (_event, windowId) => {
   }
 });
 app.whenReady().then(async () => {
-  const chromeUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-  session.defaultSession.setUserAgent(chromeUserAgent);
+  const secureUserAgent = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    "AppleWebKit/537.36 (KHTML, like Gecko)",
+    "Chrome/139.0.0.0 Safari/537.36",
+    "Edg/139.0.0.0",
+    "AussieVaultBrowser/1.0.2"
+  ].join(" ");
+  session.defaultSession.setUserAgent(secureUserAgent);
   const sharedAuthSession = session.fromPartition("persist:shared-auth");
-  sharedAuthSession.setUserAgent(chromeUserAgent);
+  sharedAuthSession.setUserAgent(secureUserAgent);
+  const webviewSession = session.fromPartition("persist:webview");
+  webviewSession.setUserAgent(secureUserAgent);
+  const configureSecurity = (sessionInstance) => {
+    sessionInstance.setPreloads([]);
+    sessionInstance.setCertificateVerifyProc((request, callback) => {
+      if (process.env.NODE_ENV === "production") {
+        callback(0);
+        return;
+      }
+      if (request.hostname === "localhost" || request.hostname === "127.0.0.1") {
+        callback(0);
+        return;
+      }
+      callback(0);
+    });
+    sessionInstance.cookies.on("changed", (_event, cookie, _cause, removed) => {
+      if (process.env.NODE_ENV === "development") {
+        console.log(
+          `🍪 Cookie ${removed ? "removed" : "added"}: ${cookie.name} for ${cookie.domain}`
+        );
+      }
+    });
+  };
+  configureSecurity(session.defaultSession);
+  configureSecurity(sharedAuthSession);
+  configureSecurity(webviewSession);
   if (process.platform === "darwin" && app.dock) {
     app.dock.setIcon(path.join(__dirname, "../build/icon.png"));
   }
@@ -5621,54 +5713,11 @@ app.on("web-contents-created", (_event, contents) => {
   const isOAuthUrl = (url) => {
     if (!url) return false;
     const urlLower = url.toLowerCase();
-    const directOAuthUrls = [
-      "accounts.google.com",
-      "login.microsoftonline.com",
-      "login.live.com",
-      "oauth.live.com",
-      "github.com/login",
-      "facebook.com/login",
-      "twitter.com/oauth",
-      "linkedin.com/oauth"
-    ];
-    const oauthPatterns = [
-      "/oauth/",
-      "/auth/",
-      "/login/",
-      "/signin/",
-      "/sso/",
-      "/openid/",
-      "oauth2",
-      "openid_connect",
-      "client_id=",
-      "response_type=",
-      "redirect_uri=",
-      "scope=",
-      "state=",
-      "code_challenge=",
-      "nonce="
-    ];
-    const socialLoginPatterns = [
-      "google",
-      "microsoft",
-      "facebook",
-      "twitter",
-      "github",
-      "linkedin"
-    ];
-    if (directOAuthUrls.some((provider) => urlLower.includes(provider))) {
+    if (urlLower.includes("aussievault://")) {
       return true;
     }
-    if (oauthPatterns.some((pattern) => urlLower.includes(pattern))) {
-      return true;
-    }
-    const hasSocialProvider = socialLoginPatterns.some(
-      (social) => urlLower.includes(social)
-    );
-    const hasAuthPattern = ["login", "auth", "signin", "sso"].some(
-      (auth) => urlLower.includes(auth)
-    );
-    if (hasSocialProvider && hasAuthPattern) {
+    const isAppAuthentication = urlLower.includes("redirect_uri=aussievault://") || urlLower.includes("redirect_uri%3daussievault://");
+    if (isAppAuthentication) {
       return true;
     }
     return false;
@@ -5677,14 +5726,14 @@ app.on("web-contents-created", (_event, contents) => {
     const { url } = details;
     if (isOAuthUrl(url)) {
       console.log(
-        "🔐 [setWindowOpenHandler] OAuth popup detected - opening externally:",
+        "🔐 [setWindowOpenHandler] App OAuth popup detected - opening externally:",
         url
       );
       shell.openExternal(url);
       return { action: "deny" };
     }
     if (url.toLowerCase().startsWith("https://")) {
-      console.log("🔗 [setWindowOpenHandler] HTTPS popup allowed:", url);
+      console.log("🔗 [setWindowOpenHandler] Website popup allowed:", url);
       return { action: "allow" };
     }
     console.log("� [setWindowOpenHandler] Popup blocked for security:", url);
@@ -5717,13 +5766,14 @@ app.on("web-contents-created", (_event, contents) => {
       } else {
         if (isOAuthUrl(navigationUrl)) {
           console.log(
-            "🔐 [will-navigate] OAuth flow detected - opening externally:",
+            "🔐 [will-navigate] App OAuth flow detected - opening externally:",
             navigationUrl
           );
           event.preventDefault();
           shell.openExternal(navigationUrl);
           return;
         }
+        console.log("🌐 Website navigation allowed:", navigationUrl);
       }
     } catch (error) {
       const isMainWindowContentsError = mainWindow && !mainWindow.isDestroyed() && contents === mainWindow.webContents;
@@ -5748,7 +5798,7 @@ ipcMain.handle("open-external-auth", async (_event, url) => {
 });
 ipcMain.handle(
   "sharepoint-prepare-temp-file",
-  async (event, { data, filename }) => {
+  async (_event, { data, filename }) => {
     try {
       const tempDir = path.join(app.getPath("temp"), "secure-browser-dnd");
       await promises.mkdir(tempDir, { recursive: true });
@@ -5873,7 +5923,7 @@ app.on("open-url", (event, url) => {
     }
   }
 });
-app.on("second-instance", (event, argv) => {
+app.on("second-instance", (_event, argv) => {
   const url = argv.find((arg) => arg.startsWith("aussievault://"));
   if (url) {
     const urlObj = new URL(url);

@@ -1789,6 +1789,8 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
         );
       });
 
+
+
       // Handle new-window events - COMPLETELY DISABLED FOR LEVEL 3 USERS
       webview.addEventListener("new-window", (event: Event) => {
         const newWindowEvent = event as Event & {

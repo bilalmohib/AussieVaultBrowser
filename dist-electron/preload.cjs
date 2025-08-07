@@ -3,7 +3,10 @@ const electron = require("electron");
 electron.contextBridge.exposeInMainWorld("ipcRenderer", {
   on(...args) {
     const [channel, listener] = args;
-    return electron.ipcRenderer.on(channel, (event, ...args2) => listener(event, ...args2));
+    return electron.ipcRenderer.on(
+      channel,
+      (event, ...args2) => listener(event, ...args2)
+    );
   },
   off(...args) {
     const [channel, ...omit] = args;
@@ -84,7 +87,7 @@ electron.contextBridge.exposeInMainWorld("secureBrowser", {
       electron.ipcRenderer.removeAllListeners("vpn-status-changed");
     }
   },
-  // Vault Operations  
+  // Vault Operations
   vault: {
     getSharePointCredentials: () => electron.ipcRenderer.invoke("vault-get-sharepoint-credentials"),
     rotateCredentials: () => electron.ipcRenderer.invoke("vault-rotate-credentials"),
@@ -180,6 +183,17 @@ electron.contextBridge.exposeInMainWorld("secureBrowser", {
     removeActionListener: () => {
       electron.ipcRenderer.removeAllListeners("context-menu-action");
     }
+  },
+  // Auth Operations
+  auth: {
+    startGoogleSignIn: () => electron.ipcRenderer.send("start-google-signin"),
+    onGoogleSignInSuccess: (callback) => electron.ipcRenderer.on(
+      "google-signin-success",
+      (_, userInfo) => callback(userInfo)
+    ),
+    onOAuthError: (callback) => electron.ipcRenderer.on("oauth-error", (_, error) => callback(error)),
+    removeGoogleSignInListener: () => electron.ipcRenderer.removeAllListeners("google-signin-success"),
+    removeOAuthErrorListener: () => electron.ipcRenderer.removeAllListeners("oauth-error")
   }
 });
 console.log("🔧 Preload: electronAPI exposed to window with methods:", {

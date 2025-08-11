@@ -1,4 +1,5 @@
 import { app, BrowserWindow, session, ipcMain, Menu, shell } from "electron";
+import type { Session } from "electron";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { spawn, ChildProcess } from "child_process";
@@ -8,11 +9,6 @@ import os from "os";
 import { printPlatformInstructions } from "../src/utils/platform.js";
 import electronSquirrelStartup from "electron-squirrel-startup";
 import fetch from "node-fetch";
-
-// Removed Google Drive integration
-
-// PKCE utility functions
-
 
 // Type definitions for better code maintainability
 export interface IPGeolocationResult {
@@ -432,7 +428,6 @@ const checkCurrentIP = async (): Promise<boolean> => {
     "⚠️  Unable to verify Australian IP - SECURITY MEASURE ACTIVATED"
   );
   return false;
-
 };
 
 // Note: testVPNConnectivity function removed - ping connectivity is NOT a reliable VPN indicator
@@ -526,21 +521,23 @@ const configureSecureSession = (): void => {
   };
 
   // Apply security headers to all sessions
-  const applySecurity = (sessionInstance: Electron.Session) => {
-    sessionInstance.webRequest.onHeadersReceived((details, callback) => {
-      const responseHeaders = details.responseHeaders || {};
+  const applySecurity = (sessionInstance: Session) => {
+    sessionInstance.webRequest.onHeadersReceived(
+      (details: any, callback: any) => {
+        const responseHeaders = details.responseHeaders || {};
 
-      // Add security headers
-      Object.entries(securityHeaders).forEach(([header, value]) => {
-        responseHeaders[header] = [value];
-      });
+        // Add security headers
+        Object.entries(securityHeaders).forEach(([header, value]) => {
+          responseHeaders[header] = [value];
+        });
 
-      callback({ responseHeaders });
-    });
+        callback({ responseHeaders });
+      }
+    );
 
     // Enhanced security settings
     sessionInstance.setPermissionRequestHandler(
-      (_webContents, permission, callback) => {
+      (_webContents: any, permission: any, callback: any) => {
         // Only allow necessary permissions for OAuth
         const allowedPermissions = [
           "clipboard-read",
@@ -552,21 +549,23 @@ const configureSecureSession = (): void => {
     );
 
     // Block insecure content
-    sessionInstance.webRequest.onBeforeRequest((details, callback) => {
-      const url = details.url.toLowerCase();
+    sessionInstance.webRequest.onBeforeRequest(
+      (details: any, callback: any) => {
+        const url = details.url.toLowerCase();
 
-      // Block mixed content (HTTP on HTTPS pages)
-      if (
-        url.startsWith("http://") &&
-        !url.includes("localhost") &&
-        !url.includes("127.0.0.1")
-      ) {
-        callback({ cancel: true });
-        return;
+        // Block mixed content (HTTP on HTTPS pages)
+        if (
+          url.startsWith("http://") &&
+          !url.includes("localhost") &&
+          !url.includes("127.0.0.1")
+        ) {
+          callback({ cancel: true });
+          return;
+        }
+
+        callback({ cancel: false });
       }
-
-      callback({ cancel: false });
-    });
+    );
   };
 
   // 🔐 SHARED AUTHENTICATION SESSION: Configure shared session for authentication
@@ -600,7 +599,7 @@ const configureSecureSession = (): void => {
 
   // Apply minimal security to webview (to maintain Google OAuth compatibility)
   webviewSession.setPermissionRequestHandler(
-    (_webContents, _permission, callback) => {
+    (_webContents: any, _permission: any, callback: any) => {
       // Allow all permissions for website functionality
       callback(true);
     }
@@ -631,137 +630,141 @@ const configureSecureSession = (): void => {
   }
 
   // Configure the shared auth session with the same security settings as default
-  sharedAuthSession.webRequest.onBeforeRequest((details, callback) => {
-    const url = details.url.toLowerCase();
+  sharedAuthSession.webRequest.onBeforeRequest(
+    (details: any, callback: any) => {
+      const url = details.url.toLowerCase();
 
-    // Allow extension requests
-    if (
-      url.startsWith("chrome-extension://") ||
-      url.startsWith("moz-extension://") ||
-      url.startsWith("extension://")
-    ) {
-      callback({ cancel: false });
-      return;
-    }
+      // Allow extension requests
+      if (
+        url.startsWith("chrome-extension://") ||
+        url.startsWith("moz-extension://") ||
+        url.startsWith("extension://")
+      ) {
+        callback({ cancel: false });
+        return;
+      }
 
-    // Allow development and internal requests
-    if (
-      url.includes("localhost") ||
-      url.includes("127.0.0.1") ||
-      url.startsWith("file://") ||
-      url.startsWith("data:")
-    ) {
-      callback({ cancel: false });
-      return;
-    }
+      // Allow development and internal requests
+      if (
+        url.includes("localhost") ||
+        url.includes("127.0.0.1") ||
+        url.startsWith("file://") ||
+        url.startsWith("data:")
+      ) {
+        callback({ cancel: false });
+        return;
+      }
 
-    // � CRITICAL: Always allow IP geolocation requests (needed to verify Australian VPN)
-    if (
-      url.includes("ipinfo.io") ||
-      url.includes("ipapi.co") ||
-      url.includes("api.ipify.org") ||
-      url.includes("checkip.amazonaws.com") ||
-      url.includes("icanhazip.com") ||
-      url.includes("httpbin.org/ip") ||
-      url.includes("myexternalip.com") ||
-      url.includes("ipify.org") ||
-      url.includes("whatismyipaddress.com") ||
-      url.includes("ip-api.com") ||
-      url.includes("geoip-db.com") ||
-      url.includes("freegeoip.app") ||
-      url.includes("extreme-ip-lookup.com")
-    ) {
+      // � CRITICAL: Always allow IP geolocation requests (needed to verify Australian VPN)
+      if (
+        url.includes("ipinfo.io") ||
+        url.includes("ipapi.co") ||
+        url.includes("api.ipify.org") ||
+        url.includes("checkip.amazonaws.com") ||
+        url.includes("icanhazip.com") ||
+        url.includes("httpbin.org/ip") ||
+        url.includes("myexternalip.com") ||
+        url.includes("ipify.org") ||
+        url.includes("whatismyipaddress.com") ||
+        url.includes("ip-api.com") ||
+        url.includes("geoip-db.com") ||
+        url.includes("freegeoip.app") ||
+        url.includes("extreme-ip-lookup.com")
+      ) {
+        console.log(
+          "✅ 🔍 SHARED AUTH: ALLOWING IP geolocation request (NEVER BLOCKED):",
+          details.url
+        );
+        callback({ cancel: false });
+        return;
+      }
+
+      // �🚨 STRICT SECURITY: Block OTHER external requests if VPN not connected to Australia
+      if (!vpnConnected && url.startsWith("https://")) {
+        console.log(
+          "🚫 🇦🇺 SHARED AUTH: BLOCKING external request - Australian VPN required:",
+          details.url
+        );
+        console.log(
+          "⚠️  Connect to Australian VPN server to access external websites"
+        );
+        callback({ cancel: true });
+        return;
+      }
+
+      // Allow Clerk authentication domains when VPN is connected
+      if (
+        url.includes("clerk.dev") ||
+        url.includes("clerk.com") ||
+        url.includes("clerk.accounts.dev")
+      ) {
+        console.log(
+          "✅ 🇦🇺 SHARED AUTH: Allowing Clerk auth request via Australian VPN:",
+          details.url
+        );
+        callback({ cancel: false });
+        return;
+      }
+
+      // Block insecure HTTP requests
+      if (url.startsWith("http://")) {
+        console.log(
+          "🚫 SHARED AUTH: BLOCKING insecure HTTP request:",
+          details.url
+        );
+        callback({ cancel: true });
+        return;
+      }
+
+      // Allow HTTPS requests for authentication when VPN is connected
+      if (url.startsWith("https://")) {
+        console.log(
+          "✅ 🇦🇺 SHARED AUTH: Allowing HTTPS auth request via Australian VPN:",
+          details.url
+        );
+        callback({ cancel: false });
+        return;
+      }
+
+      // Block everything else
       console.log(
-        "✅ 🔍 SHARED AUTH: ALLOWING IP geolocation request (NEVER BLOCKED):",
+        "🚫 SHARED AUTH: BLOCKING unknown protocol request:",
         details.url
-      );
-      callback({ cancel: false });
-      return;
-    }
-
-    // �🚨 STRICT SECURITY: Block OTHER external requests if VPN not connected to Australia
-    if (!vpnConnected && url.startsWith("https://")) {
-      console.log(
-        "🚫 🇦🇺 SHARED AUTH: BLOCKING external request - Australian VPN required:",
-        details.url
-      );
-      console.log(
-        "⚠️  Connect to Australian VPN server to access external websites"
       );
       callback({ cancel: true });
-      return;
     }
-
-    // Allow Clerk authentication domains when VPN is connected
-    if (
-      url.includes("clerk.dev") ||
-      url.includes("clerk.com") ||
-      url.includes("clerk.accounts.dev")
-    ) {
-      console.log(
-        "✅ 🇦🇺 SHARED AUTH: Allowing Clerk auth request via Australian VPN:",
-        details.url
-      );
-      callback({ cancel: false });
-      return;
-    }
-
-    // Block insecure HTTP requests
-    if (url.startsWith("http://")) {
-      console.log(
-        "🚫 SHARED AUTH: BLOCKING insecure HTTP request:",
-        details.url
-      );
-      callback({ cancel: true });
-      return;
-    }
-
-    // Allow HTTPS requests for authentication when VPN is connected
-    if (url.startsWith("https://")) {
-      console.log(
-        "✅ 🇦🇺 SHARED AUTH: Allowing HTTPS auth request via Australian VPN:",
-        details.url
-      );
-      callback({ cancel: false });
-      return;
-    }
-
-    // Block everything else
-    console.log(
-      "🚫 SHARED AUTH: BLOCKING unknown protocol request:",
-      details.url
-    );
-    callback({ cancel: true });
-  });
+  );
 
   // Set User-Agent for shared session to support OAuth flows
-  sharedAuthSession.webRequest.onBeforeSendHeaders((details, callback) => {
-    let userAgent =
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
+  sharedAuthSession.webRequest.onBeforeSendHeaders(
+    (details: any, callback: any) => {
+      let userAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
 
-    // Use Edge user agent for better Microsoft OAuth compatibility
-    if (
-      details.url.includes("accounts.google.com") ||
-      details.url.includes("googleapis.com")
-    ) {
-      userAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0";
+      // Use Edge user agent for better Microsoft OAuth compatibility
+      if (
+        details.url.includes("accounts.google.com") ||
+        details.url.includes("googleapis.com")
+      ) {
+        userAgent =
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0";
+      }
+
+      callback({
+        requestHeaders: {
+          ...details.requestHeaders,
+          "User-Agent": userAgent,
+          "Sec-Fetch-Site": "cross-site",
+          "Sec-Fetch-Mode": "navigate",
+          "Sec-Fetch-Dest": "document",
+        },
+      });
     }
-
-    callback({
-      requestHeaders: {
-        ...details.requestHeaders,
-        "User-Agent": userAgent,
-        "Sec-Fetch-Site": "cross-site",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Dest": "document",
-      },
-    });
-  });
+  );
 
   // 🌐 WEBVIEW SESSION: 🇦🇺 AUSTRALIAN VPN ENFORCEMENT
   // Block all external requests unless connected to Australian VPN
-  webviewSession.webRequest.onBeforeRequest((details, callback) => {
+  webviewSession.webRequest.onBeforeRequest((details: any, callback: any) => {
     const url = details.url.toLowerCase();
 
     // Always allow localhost and app files
@@ -846,52 +849,54 @@ const configureSecureSession = (): void => {
   });
 
   // OVERRIDE: Ensure headers are never blocked or modified
-  webviewSession.webRequest.onBeforeSendHeaders((details, callback) => {
-    const url = details.url.toLowerCase();
-    let userAgent =
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
-
-    // Use specific user agents for OAuth providers
-    if (url.includes("google.com") || url.includes("googleapis.com")) {
-      userAgent =
+  webviewSession.webRequest.onBeforeSendHeaders(
+    (details: any, callback: any) => {
+      const url = details.url.toLowerCase();
+      let userAgent =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
-    } else if (url.includes("microsoft.com") || url.includes("live.com")) {
-      userAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0";
-    }
 
-    // Pass through headers with OAuth-friendly configuration
-    callback({
-      requestHeaders: {
-        ...details.requestHeaders,
-        "User-Agent": userAgent,
-        Accept:
-          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-User": "?1",
-        "Sec-Fetch-Dest": "document",
-        "Upgrade-Insecure-Requests": "1",
-      },
-    });
-  });
+      // Use specific user agents for OAuth providers
+      if (url.includes("google.com") || url.includes("googleapis.com")) {
+        userAgent =
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
+      } else if (url.includes("microsoft.com") || url.includes("live.com")) {
+        userAgent =
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0";
+      }
+
+      // Pass through headers with OAuth-friendly configuration
+      callback({
+        requestHeaders: {
+          ...details.requestHeaders,
+          "User-Agent": userAgent,
+          Accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+          "Accept-Language": "en-US,en;q=0.9",
+          "Accept-Encoding": "gzip, deflate, br",
+          "Sec-Fetch-Site": "none",
+          "Sec-Fetch-Mode": "navigate",
+          "Sec-Fetch-User": "?1",
+          "Sec-Fetch-Dest": "document",
+          "Upgrade-Insecure-Requests": "1",
+        },
+      });
+    }
+  );
 
   // DISABLE certificate verification completely for webview
-  webviewSession.setCertificateVerifyProc((_request, callback) => {
+  webviewSession.setCertificateVerifyProc((_request: any, callback: any) => {
     callback(0); // Accept all certificates
   });
 
   // DISABLE web security completely for webview
   webviewSession.setPermissionRequestHandler(
-    (_webContents, _permission, callback) => {
+    (_webContents: any, _permission: any, callback: any) => {
       callback(true); // Allow all permissions
     }
   );
 
   // DISABLE any potential blocking in webview responses
-  webviewSession.webRequest.onHeadersReceived((details, callback) => {
+  webviewSession.webRequest.onHeadersReceived((details: any, callback: any) => {
     const responseHeaders = { ...details.responseHeaders };
 
     // Remove ALL security headers that could cause blocking
@@ -1019,6 +1024,23 @@ const configureSecureSession = (): void => {
   // Handle local download (original behavior)
   const handleLocalDownload = async (downloadId: string, item: any) => {
     return new Promise<void>((resolve) => {
+      // Ensure a concrete save path for local downloads
+      try {
+        const downloadsDir = app.getPath("downloads");
+        const filename =
+          item.getFilename && typeof item.getFilename === "function"
+            ? item.getFilename()
+            : `download_${Date.now()}`;
+        const targetPath = path.join(downloadsDir, filename);
+        if (item.setSavePath && typeof item.setSavePath === "function") {
+          item.setSavePath(targetPath);
+        }
+      } catch (setPathError) {
+        console.warn(
+          "⚠️ Could not set save path for local download:",
+          setPathError
+        );
+      }
       // Send download started event
       const downloadStartedData = {
         id: downloadId,
@@ -1233,17 +1255,17 @@ const configureSecureSession = (): void => {
   };
 
   // Apply download handler to default session (for main window downloads)
-  defaultSession.on("will-download", (event, item) => {
+  defaultSession.on("will-download", (event: any, item: any) => {
     handleDownload(event, item, "default-session");
   });
 
   // Apply download handler to shared auth session (for new windows)
-  sharedAuthSession.on("will-download", (event, item) => {
+  sharedAuthSession.on("will-download", (event: any, item: any) => {
     handleDownload(event, item, "shared-auth-session");
   });
 
   // Apply download handler to webview session (for webview downloads)
-  webviewSession.on("will-download", (event, item) => {
+  webviewSession.on("will-download", (event: any, item: any) => {
     handleDownload(event, item, "webview-session");
   });
 
@@ -1265,9 +1287,7 @@ const configureSecureSession = (): void => {
   };
 
   // Enable 1Password extension for a specific session
-  const enable1PasswordExtensionForSession = async (
-    targetSession: Electron.Session
-  ) => {
+  const enable1PasswordExtensionForSession = async (targetSession: Session) => {
     try {
       // Load 1Password extension if available
       const extensionPath = await find1PasswordExtension();
@@ -1402,7 +1422,7 @@ const configureSecureSession = (): void => {
   };
 
   // 🇦🇺 AUSTRALIAN IP DETECTION: NO BLOCKING for IP geolocation - detection must always work
-  defaultSession.webRequest.onBeforeRequest((details, callback) => {
+  defaultSession.webRequest.onBeforeRequest((details: any, callback: any) => {
     const url = details.url.toLowerCase();
 
     // Always allow localhost, app files, and extensions
@@ -1467,7 +1487,7 @@ const configureSecureSession = (): void => {
   });
 
   // Set security headers for main app only (not for external webview content)
-  defaultSession.webRequest.onHeadersReceived((details, callback) => {
+  defaultSession.webRequest.onHeadersReceived((details: any, callback: any) => {
     const url = details.url.toLowerCase();
 
     // Don't apply restrictive CSP to external websites in webviews
@@ -1512,29 +1532,34 @@ const configureSecureSession = (): void => {
   });
 
   // Configure user agent for SharePoint compatibility and OAuth
-  defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
-    const url = details.url.toLowerCase();
+  defaultSession.webRequest.onBeforeSendHeaders(
+    (details: any, callback: any) => {
+      const url = details.url.toLowerCase();
 
-    // Use a more standard user agent for OAuth providers
-    let userAgent =
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
+      // Use a more standard user agent for OAuth providers
+      let userAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
 
-    // For Google OAuth, use a more specific user agent
-    if (url.includes("accounts.google.com") || url.includes("googleapis.com")) {
-      userAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0";
+      // For Google OAuth, use a more specific user agent
+      if (
+        url.includes("accounts.google.com") ||
+        url.includes("googleapis.com")
+      ) {
+        userAgent =
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0";
+      }
+
+      callback({
+        requestHeaders: {
+          ...details.requestHeaders,
+          "User-Agent": userAgent,
+          "Sec-Fetch-Site": "cross-site",
+          "Sec-Fetch-Mode": "navigate",
+          "Sec-Fetch-Dest": "document",
+        },
+      });
     }
-
-    callback({
-      requestHeaders: {
-        ...details.requestHeaders,
-        "User-Agent": userAgent,
-        "Sec-Fetch-Site": "cross-site",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Dest": "document",
-      },
-    });
-  });
+  );
 
   // Load 1Password extension after session configuration for both default and shared sessions
   setTimeout(async () => {
@@ -1594,7 +1619,7 @@ function createBrowserWindow(isMain: boolean = false): BrowserWindow {
   });
 
   // Security: Handle window opening for OAuth (allow OAuth popups)
-  newWindow.webContents.setWindowOpenHandler((details) => {
+  newWindow.webContents.setWindowOpenHandler((details: any) => {
     const url = details.url;
     const urlLower = url.toLowerCase();
 
@@ -1612,7 +1637,7 @@ function createBrowserWindow(isMain: boolean = false): BrowserWindow {
       );
 
       // Open OAuth flows in external browser
-          shell.openExternal(url);
+      shell.openExternal(url);
 
       return { action: "deny" };
     }
@@ -1630,7 +1655,7 @@ function createBrowserWindow(isMain: boolean = false): BrowserWindow {
   });
 
   // 🔐 AGGRESSIVE KEYBOARD HANDLING: Intercept all keyboard events before webview
-  newWindow.webContents.on("before-input-event", (event, input) => {
+  newWindow.webContents.on("before-input-event", (event: any, input: any) => {
     if (
       input.type === "keyDown" &&
       (input.modifiers.includes("control") || input.modifiers.includes("meta"))
@@ -1905,7 +1930,7 @@ ipcMain.handle("sharepoint-get-oauth-token", async () => {
 
 ipcMain.handle(
   "sharepoint-graph-request",
-  async (_, { endpoint, accessToken }) => {
+  async (_: any, { endpoint, accessToken }: any) => {
     try {
       // console.log('📡 Making Graph API request to:', endpoint);
 
@@ -2033,7 +2058,7 @@ ipcMain.handle("vpn-get-status", async () => {
   }
 });
 
-ipcMain.handle("vpn-connect", async (_event, _provider: string) => {
+ipcMain.handle("vpn-connect", async (_event: any, _provider: string) => {
   console.log(`🌐 VPN connect requested: ${_provider}`);
   try {
     const success = await connectVPN();
@@ -2505,7 +2530,7 @@ ipcMain.handle("vault-get-status", async () => {
 // Security handlers
 ipcMain.handle(
   "security-check-url",
-  async (_event, _url: string, _accessLevel: number) => {
+  async (_event: any, _url: string, _accessLevel: number) => {
     // console.log(`🔒 URL check: ${_url} (Level ${_accessLevel})`)
     // Implement URL filtering logic
     return true;
@@ -2514,38 +2539,49 @@ ipcMain.handle(
 
 ipcMain.handle(
   "security-log-navigation",
-  async (_event, _url: string, _allowed: boolean, _accessLevel: number) => {
+  async (
+    _event: any,
+    _url: string,
+    _allowed: boolean,
+    _accessLevel: number
+  ) => {
     // console.log(`📝 Navigation log: ${_url} - ${_allowed ? 'ALLOWED' : 'BLOCKED'} (Level ${_accessLevel})`)
   }
 );
 
 ipcMain.handle(
   "security-prevent-download",
-  async (_event, _filename: string) => {
+  async (_event: any, _filename: string) => {
     // console.log(`🚫 Download blocked: ${_filename}`)
   }
 );
 
 // Download choice handlers
-ipcMain.handle("download-choose-local", async (_event, downloadId: string) => {
-  const pendingDownload = pendingDownloads.get(downloadId);
-  if (pendingDownload) {
-    pendingDownloads.delete(downloadId);
-    pendingDownload.resolve("local");
-    return { success: true };
+ipcMain.handle(
+  "download-choose-local",
+  async (_event: any, downloadId: string) => {
+    const pendingDownload = pendingDownloads.get(downloadId);
+    if (pendingDownload) {
+      pendingDownloads.delete(downloadId);
+      pendingDownload.resolve("local");
+      return { success: true };
+    }
+    return { success: false, error: "Download not found" };
   }
-  return { success: false, error: "Download not found" };
-});
+);
 
-ipcMain.handle("download-choose-meta", async (_event, downloadId: string) => {
-  const pendingDownload = pendingDownloads.get(downloadId);
-  if (pendingDownload) {
-    pendingDownloads.delete(downloadId);
-    pendingDownload.resolve("meta");
-    return { success: true };
+ipcMain.handle(
+  "download-choose-meta",
+  async (_event: any, downloadId: string) => {
+    const pendingDownload = pendingDownloads.get(downloadId);
+    if (pendingDownload) {
+      pendingDownloads.delete(downloadId);
+      pendingDownload.resolve("meta");
+      return { success: true };
+    }
+    return { success: false, error: "Download not found" };
   }
-  return { success: false, error: "Download not found" };
-});
+);
 
 ipcMain.handle("meta-storage-get-status", async () => {
   // TODO: Check if user has connected Meta storage account
@@ -2557,20 +2593,23 @@ ipcMain.handle("meta-storage-get-status", async () => {
   };
 });
 
-ipcMain.handle("meta-storage-connect", async (_event, _accessToken: string) => {
-  // TODO: Implement Meta storage connection
-  // This would validate the access token and store it securely
-  console.log("🔗 Meta storage connection requested");
+ipcMain.handle(
+  "meta-storage-connect",
+  async (_event: any, _accessToken: string) => {
+    // TODO: Implement Meta storage connection
+    // This would validate the access token and store it securely
+    console.log("🔗 Meta storage connection requested");
 
-  // Simulate connection process
-  await new Promise((resolve) => setTimeout(resolve, 1000));
+    // Simulate connection process
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
-  return {
-    success: true,
-    accountName: "User Meta Account",
-    storageQuota: { used: 1024 * 1024 * 100, total: 1024 * 1024 * 1024 }, // 100MB used of 1GB
-  };
-});
+    return {
+      success: true,
+      accountName: "User Meta Account",
+      storageQuota: { used: 1024 * 1024 * 100, total: 1024 * 1024 * 1024 }, // 100MB used of 1GB
+    };
+  }
+);
 
 ipcMain.handle("meta-storage-disconnect", async () => {
   // TODO: Clear stored Meta credentials
@@ -2579,7 +2618,7 @@ ipcMain.handle("meta-storage-disconnect", async () => {
 });
 
 // Shell operations handler
-ipcMain.handle("shell-open-path", async (_event, filePath: string) => {
+ipcMain.handle("shell-open-path", async (_event: any, filePath: string) => {
   try {
     // console.log('📁 Opening file with system default application:', filePath);
     const result = await shell.openPath(filePath);
@@ -2600,7 +2639,7 @@ ipcMain.handle("shell-open-path", async (_event, filePath: string) => {
 // Shell show item in folder handler
 ipcMain.handle(
   "shell-show-item-in-folder",
-  async (_event, filePath: string) => {
+  async (_event: any, filePath: string) => {
     try {
       // console.log('📂 Revealing file in system file manager:', filePath);
       shell.showItemInFolder(filePath);
@@ -2615,7 +2654,7 @@ ipcMain.handle(
 );
 
 // PDF saving handler
-ipcMain.handle("save-page-as-pdf", async (_event) => {
+ipcMain.handle("save-page-as-pdf", async (_event: any) => {
   try {
     const { dialog } = require("electron");
     // const path = require('path'); // Not needed here
@@ -2669,7 +2708,7 @@ ipcMain.handle("extension-get-1password-status", async () => {
   try {
     const extensions = session.defaultSession.getAllExtensions();
     const onePasswordExtension = extensions.find(
-      (ext) =>
+      (ext: any) =>
         ext.name.toLowerCase().includes("1password") ||
         ext.id === "aeblfdkhhhdcdjpifhhbdiojplfjncoa"
     );
@@ -2720,7 +2759,7 @@ ipcMain.handle("extension-install-1password", async () => {
 // SharePoint handlers
 ipcMain.handle(
   "sharepoint-inject-credentials",
-  async (_event, _webviewId: string) => {
+  async (_event: any, _webviewId: string) => {
     // console.log(`🔐 SharePoint credentials injection requested for: ${_webviewId}`)
     // Implement credential injection logic
     return true;
@@ -2735,10 +2774,13 @@ ipcMain.handle("sharepoint-get-config", async () => {
   };
 });
 
-ipcMain.handle("sharepoint-validate-access", async (_event, _url: string) => {
-  // console.log(`🔍 SharePoint access validation: ${_url}`)
-  return true;
-});
+ipcMain.handle(
+  "sharepoint-validate-access",
+  async (_event: any, _url: string) => {
+    // console.log(`🔍 SharePoint access validation: ${_url}`)
+    return true;
+  }
+);
 
 // Window management handlers
 ipcMain.handle("window-create-new", async () => {
@@ -2765,7 +2807,7 @@ ipcMain.handle("window-create-new", async () => {
 });
 
 // Context menu handlers
-ipcMain.handle("context-menu-show", async (event, params) => {
+ipcMain.handle("context-menu-show", async (event: any, params: any) => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
 
   if (!senderWindow) return;
@@ -2861,7 +2903,7 @@ ipcMain.handle("window-get-count", async () => {
   };
 });
 
-ipcMain.handle("window-close", async (_event, windowId?: number) => {
+ipcMain.handle("window-close", async (_event: any, windowId?: number) => {
   try {
     if (windowId) {
       const windowToClose = windows.find((win) => win.id === windowId);
@@ -2909,12 +2951,12 @@ app.whenReady().then(async () => {
   webviewSession.setUserAgent(secureUserAgent);
 
   // 🔐 ENHANCED SECURITY: Configure additional security settings
-  const configureSecurity = (sessionInstance: Electron.Session) => {
+  const configureSecurity = (sessionInstance: Session) => {
     // Set secure defaults
     sessionInstance.setPreloads([]);
 
     // Configure SSL/TLS settings
-    sessionInstance.setCertificateVerifyProc((request, callback) => {
+    sessionInstance.setCertificateVerifyProc((request: any, callback: any) => {
       // In production, always verify certificates
       if (process.env.NODE_ENV === "production") {
         callback(0); // Use Chromium's verification
@@ -2934,16 +2976,19 @@ app.whenReady().then(async () => {
     });
 
     // Set up secure cookie handling
-    sessionInstance.cookies.on("changed", (_event, cookie, _cause, removed) => {
-      // Log cookie changes for debugging (only in development)
-      if (process.env.NODE_ENV === "development") {
-        console.log(
-          `🍪 Cookie ${removed ? "removed" : "added"}: ${cookie.name} for ${
-            cookie.domain
-          }`
-        );
+    sessionInstance.cookies.on(
+      "changed",
+      (_event: any, cookie: any, _cause: any, removed: any) => {
+        // Log cookie changes for debugging (only in development)
+        if (process.env.NODE_ENV === "development") {
+          console.log(
+            `🍪 Cookie ${removed ? "removed" : "added"}: ${cookie.name} for ${
+              cookie.domain
+            }`
+          );
+        }
       }
-    });
+    );
   };
 
   // Apply security configuration to all sessions
@@ -2960,7 +3005,14 @@ app.whenReady().then(async () => {
 
   app.on(
     "certificate-error",
-    (event, _webContents, _url, _error, _certificate, callback) => {
+    (
+      event: any,
+      _webContents: any,
+      _url: any,
+      _error: any,
+      _certificate: any,
+      callback: any
+    ) => {
       if (
         process.env.NODE_ENV === "development" ||
         process.env.IGNORE_CERTIFICATE_ERRORS === "true"
@@ -3026,7 +3078,7 @@ app.on("activate", () => {
 });
 
 // Security: Prevent navigation to external websites in main window only (not webviews)
-app.on("web-contents-created", (_event, contents) => {
+app.on("web-contents-created", (_event: any, contents: any) => {
   // 🔐 ENHANCED OAUTH DETECTION: Comprehensive OAuth flow detection
   const isOAuthUrl = (url: string): boolean => {
     if (!url) return false;
@@ -3056,7 +3108,7 @@ app.on("web-contents-created", (_event, contents) => {
   };
 
   // Handle new window/tab events - CRITICAL for preventing new tabs
-  contents.setWindowOpenHandler((details) => {
+  contents.setWindowOpenHandler((details: any) => {
     const { url } = details;
 
     // Check if this is our app's OAuth URL (not website OAuth)
@@ -3080,7 +3132,7 @@ app.on("web-contents-created", (_event, contents) => {
     return { action: "deny" };
   });
 
-  contents.on("will-navigate", (event, navigationUrl) => {
+  contents.on("will-navigate", (event: any, navigationUrl: any) => {
     try {
       // Check if this is the main window's webContents
       const isMainWindowContents =
@@ -3154,7 +3206,7 @@ app.on("web-contents-created", (_event, contents) => {
 });
 
 // OAuth redirect handler (generic external auth)
-ipcMain.handle("open-external-auth", async (_event, url: string) => {
+ipcMain.handle("open-external-auth", async (_event: any, url: string) => {
   try {
     console.log("🔐 Opening external authentication URL:", url);
     await shell.openExternal(url);
@@ -3173,7 +3225,7 @@ ipcMain.handle("open-external-auth", async (_event, url: string) => {
 // We can't use it from an async IPC handler - this approach won't work
 ipcMain.handle(
   "sharepoint-prepare-temp-file",
-  async (_event, { data, filename }) => {
+  async (_event: any, { data, filename }: any) => {
     try {
       const tempDir = path.join(app.getPath("temp"), "secure-browser-dnd");
       await fs.mkdir(tempDir, { recursive: true });
@@ -3215,7 +3267,7 @@ ipcMain.handle(
 );
 
 // Handle the actual drag start - this must be called from the renderer in response to dragstart
-ipcMain.on("sharepoint-start-drag", (event, { filePath }) => {
+ipcMain.on("sharepoint-start-drag", (event: any, { filePath }: any) => {
   try {
     console.log(`🚀 Starting native drag for file: ${filePath}`);
 
@@ -3234,7 +3286,7 @@ ipcMain.on("sharepoint-start-drag", (event, { filePath }) => {
 });
 
 // Handle app protocol (for production)
-if (process.defaultApp) {
+if ((process as any).defaultApp) {
   if (process.argv.length >= 2) {
     app.setAsDefaultProtocolClient("secure-browser", process.execPath, [
       path.resolve(process.argv[1]),
@@ -3263,11 +3315,6 @@ process.on("SIGTERM", () => {
 
 app.setAsDefaultProtocolClient("aussievault");
 
-
-
-
-app.on("second-instance", (_event, argv) => {
+app.on("second-instance", (_event: any, _argv: any) => {
   // Handle second instance if needed in the future
 });
-
-

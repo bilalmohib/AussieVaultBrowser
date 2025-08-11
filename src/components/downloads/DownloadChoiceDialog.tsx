@@ -8,7 +8,6 @@ import {
   DialogFooter 
 } from '../ui/dialog';
 import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
 import { Progress } from '../ui/progress';
 import { 
   Download, 
@@ -62,8 +61,16 @@ export const DownloadChoiceDialog: React.FC<DownloadChoiceDialogProps> = ({
 
   const checkMetaStorageStatus = async () => {
     try {
-      const status = await window.electronAPI.metaStorage.getStatus();
-      setMetaStorageStatus(status);
+      const status = await window.electronAPI?.metaStorage?.getStatus?.();
+      if (status) {
+        setMetaStorageStatus(status as MetaStorageStatus);
+      } else {
+        setMetaStorageStatus({
+          connected: false,
+          accountName: null,
+          storageQuota: null,
+        });
+      }
     } catch (error) {
       console.error('Failed to check Meta storage status:', error);
       setMetaStorageStatus({
@@ -80,13 +87,13 @@ export const DownloadChoiceDialog: React.FC<DownloadChoiceDialogProps> = ({
       // In a real implementation, you would redirect to Meta OAuth
       // For now, simulate connection with a fake token
       const fakeToken = 'simulated_meta_access_token';
-      const result = await window.electronAPI.metaStorage.connect(fakeToken);
+      const result = await window.electronAPI?.metaStorage?.connect?.(fakeToken);
       
-      if (result.success) {
+      if (result && (result as any).success) {
         setMetaStorageStatus({
           connected: true,
-          accountName: result.accountName,
-          storageQuota: result.storageQuota
+          accountName: (result as any).accountName ?? null,
+          storageQuota: (result as any).storageQuota ?? null
         });
         setShowMetaAuth(false);
       }
@@ -132,28 +139,31 @@ export const DownloadChoiceDialog: React.FC<DownloadChoiceDialogProps> = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[680px] p-0 overflow-hidden rounded-xl shadow-xl">
+        {/* Header */}
+        <div className="px-6 pt-6 pb-4 border-b bg-white/90 backdrop-blur">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Download className="h-5 w-5" />
+          <DialogTitle className="flex items-center gap-3 text-lg">
+            <Download className="h-5 w-5 text-blue-600" />
             Choose Download Method
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="text-slate-600">
             Where would you like to save this file?
           </DialogDescription>
         </DialogHeader>
+        </div>
 
-        <div className="space-y-4">
+        <div className="space-y-5 p-6">
           {/* File Information */}
-          <div className="bg-muted p-4 rounded-lg space-y-2">
-            <div className="flex items-center gap-2">
-              <FileText className="h-4 w-4" />
-              <span className="font-medium truncate">{downloadData.filename}</span>
+          <div className="rounded-lg border bg-gradient-to-br from-slate-50 to-white p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <FileText className="h-4 w-4 text-slate-600" />
+                <span className="font-medium truncate">{downloadData.filename}</span>
+              </div>
+              <span className="text-xs text-slate-500 shrink-0">{formatFileSize(downloadData.totalBytes)}</span>
             </div>
-            <div className="text-sm text-muted-foreground">
-              Size: {formatFileSize(downloadData.totalBytes)}
-            </div>
-            <div className="text-xs text-muted-foreground truncate">
+            <div className="text-xs text-slate-500 truncate mt-1">
               From: {downloadData.url}
             </div>
           </div>
@@ -161,23 +171,23 @@ export const DownloadChoiceDialog: React.FC<DownloadChoiceDialogProps> = ({
           {!showMetaAuth ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Local Download Option */}
-              <div className="border rounded-lg p-4 hover:bg-muted/50 transition-colors">
+              <div className="border rounded-xl p-4 hover:shadow-sm transition-all bg-white/80">
                 <div className="flex items-center gap-3 mb-3">
-                  <HardDrive className="h-6 w-6 text-blue-500" />
+                  <HardDrive className="h-6 w-6 text-blue-600" />
                   <div>
                     <h3 className="font-medium">Local Download</h3>
-                    <p className="text-sm text-muted-foreground">Save to your computer</p>
+                    <p className="text-sm text-slate-600">Save to your computer</p>
                   </div>
                 </div>
-                <ul className="text-sm text-muted-foreground space-y-1 mb-4">
+                <ul className="text-sm text-slate-600 space-y-1 mb-4">
                   <li>• Instant access</li>
                   <li>• Works offline</li>
                   <li>• Uses local storage</li>
                 </ul>
                 <Button 
                   onClick={handleLocalDownload} 
-                  className="w-full"
-                  variant="outline"
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                  variant="default"
                 >
                   <HardDrive className="h-4 w-4 mr-2" />
                   Download Locally
@@ -185,19 +195,19 @@ export const DownloadChoiceDialog: React.FC<DownloadChoiceDialogProps> = ({
               </div>
 
               {/* Meta Storage Option */}
-              <div className="border rounded-lg p-4 hover:bg-muted/50 transition-colors">
+              <div className="border rounded-xl p-4 hover:shadow-sm transition-all bg-white/80">
                 <div className="flex items-center gap-3 mb-3">
-                  <Cloud className="h-6 w-6 text-green-500" />
+                  <Cloud className="h-6 w-6 text-emerald-600" />
                   <div>
                     <h3 className="font-medium">Meta Storage</h3>
-                    <p className="text-sm text-muted-foreground">Save to Meta cloud</p>
+                    <p className="text-sm text-slate-600">Save to Meta cloud</p>
                   </div>
                 </div>
 
                 {metaStorageStatus?.connected ? (
                   <div className="space-y-3">
                     <div className="flex items-center gap-2">
-                      <CheckCircle className="h-4 w-4 text-green-500" />
+                      <CheckCircle className="h-4 w-4 text-emerald-600" />
                       <span className="text-sm font-medium">{metaStorageStatus.accountName}</span>
                     </div>
                     
@@ -213,7 +223,7 @@ export const DownloadChoiceDialog: React.FC<DownloadChoiceDialogProps> = ({
                       </div>
                     )}
 
-                    <ul className="text-sm text-muted-foreground space-y-1 mb-4">
+                    <ul className="text-sm text-slate-600 space-y-1 mb-4">
                       <li>• Access anywhere</li>
                       <li>• Automatic sync</li>
                       <li>• Share with others</li>
@@ -231,11 +241,11 @@ export const DownloadChoiceDialog: React.FC<DownloadChoiceDialogProps> = ({
                 ) : (
                   <div className="space-y-3">
                     <div className="flex items-center gap-2">
-                      <AlertCircle className="h-4 w-4 text-orange-500" />
+                      <AlertCircle className="h-4 w-4 text-amber-600" />
                       <span className="text-sm">Not connected</span>
                     </div>
                     
-                    <ul className="text-sm text-muted-foreground space-y-1 mb-4">
+                    <ul className="text-sm text-slate-600 space-y-1 mb-4">
                       <li>• Access anywhere</li>
                       <li>• Automatic sync</li>
                       <li>• Share with others</li>
@@ -243,7 +253,7 @@ export const DownloadChoiceDialog: React.FC<DownloadChoiceDialogProps> = ({
 
                     <Button 
                       onClick={handleMetaUpload} 
-                      className="w-full"
+                      className="w-full border-emerald-200 text-emerald-700 hover:bg-emerald-50"
                       variant="outline"
                     >
                       <Settings className="h-4 w-4 mr-2" />
@@ -257,7 +267,7 @@ export const DownloadChoiceDialog: React.FC<DownloadChoiceDialogProps> = ({
             /* Meta Authentication Flow */
             <div className="space-y-4">
               <div className="text-center">
-                <Cloud className="h-12 w-12 text-green-500 mx-auto mb-4" />
+                <Cloud className="h-12 w-12 text-emerald-600 mx-auto mb-4" />
                 <h3 className="text-lg font-medium mb-2">Connect to Meta Storage</h3>
                 <p className="text-sm text-muted-foreground mb-4">
                   Connect your Meta account to save files to Meta cloud storage
@@ -295,8 +305,9 @@ export const DownloadChoiceDialog: React.FC<DownloadChoiceDialogProps> = ({
           )}
         </div>
 
-        <DialogFooter className="flex justify-between">
-          <div className="text-xs text-muted-foreground">
+        <DialogFooter className="flex items-center justify-between px-6 pb-4 pt-2 border-t bg-white/70">
+          <div className="text-xs text-slate-500 flex items-center gap-2">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500"></span>
             Auto-download locally in 30 seconds
           </div>
           <Button variant="ghost" onClick={onClose}>

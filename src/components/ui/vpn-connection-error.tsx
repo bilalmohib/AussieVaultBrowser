@@ -31,17 +31,14 @@ const VPNConnectionError: React.FC<VPNConnectionErrorProps> = ({
 }) => {
   // Only log the error, don't show toast notifications automatically
   useEffect(() => {
-    const message =
-      "🚫 VPN Connection Required - Secure browsing blocked until VPN is connected";
-    // console.log("🔴 VPN Connection Error:", message);
+    // console.log("🔴 VPN Connection Error:", "🚫 VPN Connection Required - Secure browsing blocked until VPN is connected");
     // Removed automatic toast - only show when user manually triggered
   }, []);
 
   // Only log error details, don't show toast notifications automatically
   useEffect(() => {
     if (errorDetails) {
-      const message = `🔧 Connection Details: ${errorDetails}`;
-      // console.log("🔴 VPN Error Details:", message);
+      // console.log("🔴 VPN Error Details:", `🔧 Connection Details: ${errorDetails}`);
       // Removed automatic toast - only show when user manually triggered
     }
   }, [errorDetails]);
@@ -49,21 +46,18 @@ const VPNConnectionError: React.FC<VPNConnectionErrorProps> = ({
   // Show completion toasts for retry and status check operations
   useEffect(() => {
     if (isRetrying) {
-      const message = "🔄 VPN connection attempt in progress...";
-      // console.log("🔵 VPN Status:", message);
+      // console.log("🔵 VPN Status:", "🔄 VPN connection attempt in progress...");
     }
   }, [isRetrying]);
 
   useEffect(() => {
     if (isChecking) {
-      const message = "🔍 VPN status check in progress...";
-      // console.log("🔵 VPN Status:", message);
+      // console.log("🔵 VPN Status:", "🔍 VPN status check in progress...");
     }
   }, [isChecking]);
 
   const handleRetry = () => {
-    const message = "🔄 Attempting to connect to Australian VPN...";
-    // console.log("🔵 VPN Retry:", message);
+    // console.log("🔵 VPN Retry:", "🔄 Attempting to connect to Australian VPN...");
     toast.loading("Connecting to Australian VPN...", {
       description: "Establishing secure WireGuard connection",
       duration: 3000,
@@ -72,8 +66,7 @@ const VPNConnectionError: React.FC<VPNConnectionErrorProps> = ({
   };
 
   const handleCheckStatus = () => {
-    const message = "🔍 Checking VPN connection status...";
-    // console.log("🔵 VPN Status Check:", message);
+    // console.log("🔵 VPN Status Check:", "🔍 Checking VPN connection status...");
     toast.info("Checking VPN Status", {
       description: "Verifying connection without attempting to reconnect",
       duration: 2000,

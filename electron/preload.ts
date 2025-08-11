@@ -4,7 +4,7 @@ import { contextBridge, ipcRenderer } from "electron";
 contextBridge.exposeInMainWorld("ipcRenderer", {
   on(...args: Parameters<typeof ipcRenderer.on>) {
     const [channel, listener] = args;
-    return ipcRenderer.on(channel, (event, ...args) =>
+    return ipcRenderer.on(channel, (event: any, ...args: any[]) =>
       listener(event, ...args)
     );
   },
@@ -30,7 +30,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     disconnect: () => ipcRenderer.invoke("vpn-disconnect"),
     checkIP: () => ipcRenderer.invoke("vpn-check-ip"),
     onStatusChange: (callback: (status: string) => void) => {
-      ipcRenderer.on("vpn-status-changed", (_, status) => callback(status));
+      ipcRenderer.on("vpn-status-changed", (_: any, status: any) =>
+        callback(status)
+      );
     },
     removeStatusListener: () => {
       ipcRenderer.removeAllListeners("vpn-status-changed");
@@ -82,7 +84,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // External auth handling
   openExternalAuth: (url: string) =>
     ipcRenderer.invoke("open-external-auth", url),
-
 });
 
 // Secure API for VPN and Vault operations
@@ -94,7 +95,9 @@ contextBridge.exposeInMainWorld("secureBrowser", {
     disconnect: () => ipcRenderer.invoke("vpn-disconnect"),
     checkIP: () => ipcRenderer.invoke("vpn-check-ip"),
     onStatusChange: (callback: (status: string) => void) => {
-      ipcRenderer.on("vpn-status-changed", (_, status) => callback(status));
+      ipcRenderer.on("vpn-status-changed", (_: any, status: any) =>
+        callback(status)
+      );
     },
     removeStatusListener: () => {
       ipcRenderer.removeAllListeners("vpn-status-changed");
@@ -218,14 +221,14 @@ contextBridge.exposeInMainWorld("secureBrowser", {
     show: (params: { x: number; y: number }) =>
       ipcRenderer.invoke("context-menu-show", params),
     onAction: (callback: (action: string) => void) => {
-      ipcRenderer.on("context-menu-action", (_, action) => callback(action));
+      ipcRenderer.on("context-menu-action", (_: any, action: any) =>
+        callback(action)
+      );
     },
     removeActionListener: () => {
       ipcRenderer.removeAllListeners("context-menu-action");
     },
   },
-
-
 });
 
 // Debug: Log electronAPI creation
@@ -350,7 +353,6 @@ export interface SecureBrowserAPI {
   };
   on: (channel: string, func: (...args: any[]) => void) => void;
   removeListener: (channel: string, func: (...args: any[]) => void) => void;
-
 }
 
 declare global {

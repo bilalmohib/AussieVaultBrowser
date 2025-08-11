@@ -53,7 +53,7 @@ export const SharePointSidebar: React.FC<SharePointSidebarProps> = ({
 }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sites, setSites] = useState<SharePointSite[]>([]);
+  const [_sites, setSites] = useState<SharePointSite[]>([]);
   const [selectedSite, setSelectedSite] = useState<SharePointSite | null>(null);
   const [selectedDrive, setSelectedDrive] = useState<SharePointDrive | null>(
     null

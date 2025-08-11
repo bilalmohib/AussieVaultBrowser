@@ -4149,7 +4149,17 @@ const configureSecureSession = () => {
       return;
     }
     const downloadId = `download_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    event.preventDefault();
+    try {
+      if (item.pause && !(item.isPaused && item.isPaused())) {
+        item.pause();
+        console.log(
+          "⏸️ Download paused awaiting user choice:",
+          item.getFilename()
+        );
+      }
+    } catch (e) {
+      console.warn("⚠️ Could not pause download before choice:", e);
+    }
     const downloadPromise = new Promise((resolve, reject) => {
       pendingDownloads.set(downloadId, { item, resolve, reject });
       setTimeout(() => {
@@ -4174,8 +4184,8 @@ const configureSecureSession = () => {
     try {
       const choice = await downloadPromise;
       await processDownloadChoice(downloadId, choice, item);
-    } catch (error) {
-      console.error("❌ Download handling error:", error);
+    } catch (err) {
+      console.error("❌ Download handling error:", err);
       await processDownloadChoice(downloadId, "local", item);
     }
   };
@@ -4207,11 +4217,16 @@ const configureSecureSession = () => {
         if (item.setSavePath && typeof item.setSavePath === "function") {
           item.setSavePath(targetPath);
         }
-      } catch (setPathError) {
-        console.warn(
-          "⚠️ Could not set save path for local download:",
-          setPathError
-        );
+      } catch (e) {
+        console.warn("⚠️ Could not set save path for local download:", e);
+      }
+      try {
+        if (item.isPaused && item.isPaused()) {
+          item.resume();
+          console.log("▶️ Download resumed (local):", item.getFilename());
+        }
+      } catch (e) {
+        console.warn("⚠️ Could not resume download:", e);
       }
       const downloadStartedData = {
         id: downloadId,
@@ -4256,7 +4271,6 @@ const configureSecureSession = () => {
         });
         resolve();
       });
-      item.resume();
     });
   };
   const handleMetaStorageUpload = async (downloadId, item) => {
@@ -5757,7 +5771,7 @@ app.on("web-contents-created", (_event, contents) => {
       console.log("🔗 [setWindowOpenHandler] Website popup allowed:", url);
       return { action: "allow" };
     }
-    console.log("� [setWindowOpenHandler] Popup blocked for security:", url);
+    console.log("🚫 [setWindowOpenHandler] Popup blocked for security:", url);
     return { action: "deny" };
   });
   contents.on("will-navigate", (event, navigationUrl) => {

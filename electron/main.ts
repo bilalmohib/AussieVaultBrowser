@@ -945,19 +945,27 @@ const configureSecureSession = (): void => {
       return;
     }
 
-    // Generate unique ID for this download
     const downloadId = `download_${Date.now()}_${Math.random()
       .toString(36)
       .substr(2, 9)}`;
 
-    // PAUSE the download to show user options
-    event.preventDefault();
+    // IMPORTANT: Do NOT call event.preventDefault() here or the download is fully cancelled.
+    // Instead, pause so we can resume after user choice.
+    try {
+      if (item.pause && !(item.isPaused && item.isPaused())) {
+        item.pause();
+        console.log(
+          "⏸️ Download paused awaiting user choice:",
+          item.getFilename()
+        );
+      }
+    } catch (e) {
+      console.warn("⚠️ Could not pause download before choice:", e);
+    }
 
-    // Store the download item for later processing
     const downloadPromise = new Promise<"local" | "meta">((resolve, reject) => {
       pendingDownloads.set(downloadId, { item, resolve, reject });
-
-      // Auto-resolve to local after 30 seconds if no response
+      // Auto fallback after 30s
       setTimeout(() => {
         if (pendingDownloads.has(downloadId)) {
           pendingDownloads.delete(downloadId);
@@ -966,15 +974,13 @@ const configureSecureSession = (): void => {
       }, 30000);
     });
 
-    // Send download choice request to frontend
     const downloadChoiceData = {
       id: downloadId,
       filename: item.getFilename(),
       url: item.getURL(),
       totalBytes: item.getTotalBytes(),
-      sessionName: sessionName,
+      sessionName,
     };
-
     windows.forEach((window) => {
       if (window && !window.isDestroyed()) {
         window.webContents.send("download-choice-required", downloadChoiceData);
@@ -984,9 +990,8 @@ const configureSecureSession = (): void => {
     try {
       const choice = await downloadPromise;
       await processDownloadChoice(downloadId, choice, item);
-    } catch (error) {
-      console.error("❌ Download handling error:", error);
-      // Fallback to local download
+    } catch (err) {
+      console.error("❌ Download handling error:", err);
       await processDownloadChoice(downloadId, "local", item);
     }
   };
@@ -1024,7 +1029,6 @@ const configureSecureSession = (): void => {
   // Handle local download (original behavior)
   const handleLocalDownload = async (downloadId: string, item: any) => {
     return new Promise<void>((resolve) => {
-      // Ensure a concrete save path for local downloads
       try {
         const downloadsDir = app.getPath("downloads");
         const filename =
@@ -1035,13 +1039,20 @@ const configureSecureSession = (): void => {
         if (item.setSavePath && typeof item.setSavePath === "function") {
           item.setSavePath(targetPath);
         }
-      } catch (setPathError) {
-        console.warn(
-          "⚠️ Could not set save path for local download:",
-          setPathError
-        );
+      } catch (e) {
+        console.warn("⚠️ Could not set save path for local download:", e);
       }
-      // Send download started event
+
+      // Resume if previously paused
+      try {
+        if (item.isPaused && item.isPaused()) {
+          item.resume();
+          console.log("▶️ Download resumed (local):", item.getFilename());
+        }
+      } catch (e) {
+        console.warn("⚠️ Could not resume download:", e);
+      }
+
       const downloadStartedData = {
         id: downloadId,
         filename: item.getFilename(),
@@ -1049,19 +1060,17 @@ const configureSecureSession = (): void => {
         totalBytes: item.getTotalBytes(),
         type: "local",
       };
-
       windows.forEach((window) => {
         if (window && !window.isDestroyed()) {
           window.webContents.send("download-started", downloadStartedData);
         }
       });
 
-      // Track progress
       item.on("updated", (_event: any, state: any) => {
         const progressData = {
           id: downloadId,
           filename: item.getFilename(),
-          state: state,
+          state,
           receivedBytes: item.getReceivedBytes(),
           totalBytes: item.getTotalBytes(),
           speed: item.getCurrentBytesPerSecond
@@ -1069,7 +1078,6 @@ const configureSecureSession = (): void => {
             : 0,
           type: "local",
         };
-
         windows.forEach((window) => {
           if (window && !window.isDestroyed()) {
             window.webContents.send("download-progress", progressData);
@@ -1081,11 +1089,10 @@ const configureSecureSession = (): void => {
         const completedData = {
           id: downloadId,
           filename: item.getFilename(),
-          state: state,
+          state,
           filePath: state === "completed" ? item.getSavePath() : null,
           type: "local",
         };
-
         windows.forEach((window) => {
           if (window && !window.isDestroyed()) {
             window.webContents.send("download-completed", completedData);
@@ -1093,9 +1100,6 @@ const configureSecureSession = (): void => {
         });
         resolve();
       });
-
-      // Resume the download
-      item.resume();
     });
   };
 
@@ -3128,7 +3132,7 @@ app.on("web-contents-created", (_event: any, contents: any) => {
     }
 
     // Block HTTP and other potentially insecure popups
-    console.log("� [setWindowOpenHandler] Popup blocked for security:", url);
+    console.log("🚫 [setWindowOpenHandler] Popup blocked for security:", url);
     return { action: "deny" };
   });
 

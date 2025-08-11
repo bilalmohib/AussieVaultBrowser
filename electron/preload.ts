@@ -82,6 +82,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // External auth handling
   openExternalAuth: (url: string) =>
     ipcRenderer.invoke("open-external-auth", url),
+
 });
 
 // Secure API for VPN and Vault operations
@@ -224,20 +225,7 @@ contextBridge.exposeInMainWorld("secureBrowser", {
     },
   },
 
-  // Auth Operations
-  auth: {
-    startGoogleSignIn: () => ipcRenderer.send("start-google-signin"),
-    onGoogleSignInSuccess: (callback: (userInfo: any) => void) =>
-      ipcRenderer.on("google-signin-success", (_, userInfo) =>
-        callback(userInfo)
-      ),
-    onOAuthError: (callback: (error: string) => void) =>
-      ipcRenderer.on("oauth-error", (_, error) => callback(error)),
-    removeGoogleSignInListener: () =>
-      ipcRenderer.removeAllListeners("google-signin-success"),
-    removeOAuthErrorListener: () =>
-      ipcRenderer.removeAllListeners("oauth-error"),
-  },
+
 });
 
 // Debug: Log electronAPI creation
@@ -362,13 +350,7 @@ export interface SecureBrowserAPI {
   };
   on: (channel: string, func: (...args: any[]) => void) => void;
   removeListener: (channel: string, func: (...args: any[]) => void) => void;
-  auth: {
-    startGoogleSignIn: () => void;
-    onGoogleSignInSuccess: (callback: (userInfo: any) => void) => void;
-    onOAuthError: (callback: (error: string) => void) => void;
-    removeGoogleSignInListener: () => void;
-    removeOAuthErrorListener: () => void;
-  };
+
 }
 
 declare global {

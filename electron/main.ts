@@ -9,26 +9,10 @@ import { printPlatformInstructions } from "../src/utils/platform.js";
 import electronSquirrelStartup from "electron-squirrel-startup";
 import fetch from "node-fetch";
 
-import crypto from "crypto";
+// Removed Google Drive integration
 
 // PKCE utility functions
-function base64URLEncode(str: Buffer) {
-  return str
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=/g, "");
-}
 
-function sha256(buffer: string) {
-  return crypto.createHash("sha256").update(buffer).digest();
-}
-
-function generatePKCECodes() {
-  const codeVerifier = base64URLEncode(crypto.randomBytes(32));
-  const codeChallenge = base64URLEncode(sha256(codeVerifier));
-  return { codeVerifier, codeChallenge };
-}
 
 // Type definitions for better code maintainability
 export interface IPGeolocationResult {
@@ -128,6 +112,8 @@ let windows: BrowserWindow[] = [];
 let mainWindow: BrowserWindow | null = null;
 let vpnConnected = false;
 let wireguardProcess: ChildProcess | null = null;
+
+// All Google Drive related code removed
 
 // Store pending downloads for choice processing
 const pendingDownloads = new Map<
@@ -518,7 +504,7 @@ const disconnectWireGuardWindows = async (): Promise<boolean> => {
 const configureSecureSession = (): void => {
   const defaultSession = session.defaultSession;
 
-  // 🔐 ENHANCED SECURITY: Configure security headers and policies for Google OAuth compatibility
+  // 🔐 ENHANCED SECURITY: Configure security headers and policies for OAuth compatibility
   const securityHeaders = {
     "Content-Security-Policy": [
       "default-src 'self' https:",
@@ -1625,31 +1611,8 @@ function createBrowserWindow(isMain: boolean = false): BrowserWindow {
         url
       );
 
-      // For Google OAuth flows, add PKCE if it's a direct Google URL
-      if (
-        urlLower.includes("accounts.google.com") &&
-        !urlLower.includes("code_challenge")
-      ) {
-        try {
-          const { codeVerifier, codeChallenge } = generatePKCECodes();
-          (global as any).pkceCodeVerifier = codeVerifier;
-
-          const authUrl = new URL(url);
-          authUrl.searchParams.append("code_challenge", codeChallenge);
-          authUrl.searchParams.append("code_challenge_method", "S256");
-
-          shell.openExternal(authUrl.toString());
-        } catch (error) {
-          console.log(
-            "⚠️ PKCE enhancement failed, opening original URL:",
-            error
-          );
+      // Open OAuth flows in external browser
           shell.openExternal(url);
-        }
-      } else {
-        // For other OAuth flows, open as-is in external browser
-        shell.openExternal(url);
-      }
 
       return { action: "deny" };
     }
@@ -3190,7 +3153,7 @@ app.on("web-contents-created", (_event, contents) => {
   });
 });
 
-// OAuth redirect handler
+// OAuth redirect handler (generic external auth)
 ipcMain.handle("open-external-auth", async (_event, url: string) => {
   try {
     console.log("🔐 Opening external authentication URL:", url);
@@ -3299,139 +3262,12 @@ process.on("SIGTERM", () => {
 });
 
 app.setAsDefaultProtocolClient("aussievault");
-const exchangeCodeForToken = async (code: string) => {
-  const codeVerifier = (global as any).pkceCodeVerifier;
-  if (!codeVerifier) {
-    console.error("PKCE code verifier not found.");
-    throw new Error("PKCE code verifier not found.");
-  }
 
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  if (!clientId || clientId === "YOUR_CLIENT_ID") {
-    throw new Error(
-      "Google OAuth not configured. Please set GOOGLE_CLIENT_ID environment variable."
-    );
-  }
 
-  console.log("🔄 Exchanging authorization code for tokens...");
 
-  const response = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      code,
-      client_id: clientId,
-      redirect_uri: "aussievault://callback",
-      grant_type: "authorization_code",
-      code_verifier: codeVerifier,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error("❌ Token exchange failed:", response.status, errorText);
-    throw new Error(
-      `Token exchange failed: ${response.status} ${response.statusText}`
-    );
-  }
-
-  const tokens = await response.json();
-  console.log("✅ OAuth tokens received successfully");
-  return tokens;
-};
-
-app.on("open-url", (event, url) => {
-  event.preventDefault();
-  console.log("Received OAuth callback URL:", url);
-  const urlObj = new URL(url);
-  const authCode = urlObj.searchParams.get("code");
-  const error = urlObj.searchParams.get("error");
-
-  if (authCode) {
-    console.log("OAuth Authorization Code:", authCode);
-    exchangeCodeForToken(authCode)
-      .then(async (tokens) => {
-        const userResponse = await fetch(
-          `https://www.googleapis.com/oauth2/v1/userinfo?access_token=${tokens.access_token}`
-        );
-        const userInfo = await userResponse.json();
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send("google-signin-success", userInfo);
-        }
-      })
-      .catch((err) => {
-        console.error("Error exchanging code:", err);
-        if (mainWindow) {
-          mainWindow.webContents.send("oauth-error", err.message);
-        }
-      });
-  } else if (error) {
-    console.error("OAuth Error:", error);
-    if (mainWindow) {
-      mainWindow.webContents.send("oauth-error", error);
-    }
-  }
-});
 
 app.on("second-instance", (_event, argv) => {
-  const url = argv.find((arg) => arg.startsWith("aussievault://"));
-  if (url) {
-    const urlObj = new URL(url);
-    const authCode = urlObj.searchParams.get("code");
-    const error = urlObj.searchParams.get("error");
-
-    if (authCode) {
-      console.log("OAuth Authorization Code (second-instance):", authCode);
-      exchangeCodeForToken(authCode)
-        .then(async (tokens) => {
-          const userResponse = await fetch(
-            `https://www.googleapis.com/oauth2/v1/userinfo?access_token=${tokens.access_token}`
-          );
-          const userInfo = await userResponse.json();
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send("google-signin-success", userInfo);
-          }
-        })
-        .catch((err) => {
-          console.error("Error exchanging code:", err);
-          if (mainWindow) {
-            mainWindow.webContents.send("oauth-error", err.message);
-          }
-        });
-    } else if (error) {
-      console.error("OAuth Error (second-instance):", error);
-      if (mainWindow) {
-        mainWindow.webContents.send("oauth-error", error);
-      }
-    }
-  }
+  // Handle second instance if needed in the future
 });
 
-ipcMain.on("start-google-signin", () => {
-  // Generate PKCE codes for this sign-in attempt
-  const { codeVerifier, codeChallenge } = generatePKCECodes();
-  (global as any).pkceCodeVerifier = codeVerifier;
 
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  console.log("🔐 Starting Google OAuth flow...");
-  console.log(
-    "📋 Client ID configured:",
-    clientId ? `${clientId.substring(0, 20)}...` : "NOT SET"
-  );
-
-  if (!clientId || clientId === "YOUR_CLIENT_ID") {
-    console.error("❌ GOOGLE_CLIENT_ID not properly configured");
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send(
-        "oauth-error",
-        "Google OAuth not configured. Please set GOOGLE_CLIENT_ID environment variable."
-      );
-    }
-    return;
-  }
-
-  const signInUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=aussievault://callback&response_type=code&scope=profile%20email&code_challenge=${codeChallenge}&code_challenge_method=S256`;
-
-  console.log("🌐 Opening OAuth URL in external browser...");
-  shell.openExternal(signInUrl);
-});

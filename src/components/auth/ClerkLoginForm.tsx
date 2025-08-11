@@ -217,27 +217,7 @@ export const ClerkLoginForm: React.FC<ClerkLoginFormProps> = ({
     };
   }, [onAuthSuccess, onAuthError]);
 
-  useEffect(() => {
-    window.secureBrowser.auth.onGoogleSignInSuccess((userInfo) => {
-      onAuthSuccess({
-        id: userInfo.id,
-        name: userInfo.name,
-        email: userInfo.email,
-        accessLevel: 1,
-        avatar: userInfo.picture,
-      });
-    });
 
-    window.secureBrowser.auth.onOAuthError((error) => {
-      console.error("❌ OAuth Error:", error);
-      onAuthError("Google sign-in failed: " + error);
-    });
-
-    return () => {
-      window.secureBrowser.auth.removeGoogleSignInListener();
-      window.secureBrowser.auth.removeOAuthErrorListener();
-    };
-  }, [onAuthSuccess, onAuthError]);
 
   const handleSignIn = async () => {
     try {
@@ -431,17 +411,7 @@ export const ClerkLoginForm: React.FC<ClerkLoginFormProps> = ({
                 )}
               </Button>
 
-              <Separator className="my-4" />
 
-              <Button
-                onClick={() => window.secureBrowser.auth.startGoogleSignIn()}
-                className="w-full h-12 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
-              >
-                <div className="flex items-center gap-2">
-                  <Chrome className="w-4 h-4" />
-                  Sign in with Google
-                </div>
-              </Button>
 
               {/* Features List */}
               <div className="mt-6 pt-4 border-t border-gray-200">

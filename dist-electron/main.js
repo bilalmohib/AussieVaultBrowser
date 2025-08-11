@@ -14,7 +14,6 @@ import Url from "url";
 import require$$0$2 from "punycode";
 import https from "https";
 import zlib from "zlib";
-import crypto from "crypto";
 const detectPlatform = () => {
   if (typeof window !== "undefined") {
     const userAgent = navigator.userAgent.toLowerCase();
@@ -3565,17 +3564,6 @@ fetch.isRedirect = function(code) {
   return code === 301 || code === 302 || code === 303 || code === 307 || code === 308;
 };
 fetch.Promise = global.Promise;
-function base64URLEncode(str) {
-  return str.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
-}
-function sha256(buffer) {
-  return crypto.createHash("sha256").update(buffer).digest();
-}
-function generatePKCECodes() {
-  const codeVerifier = base64URLEncode(crypto.randomBytes(32));
-  const codeChallenge = base64URLEncode(sha256(codeVerifier));
-  return { codeVerifier, codeChallenge };
-}
 const VPN_CHECK_TIMEOUT = 3e4;
 const PROCESS_TIMEOUT = 3e4;
 const IP_GEOLOCATION_API = "https://ipinfo.io/json";
@@ -3715,31 +3703,31 @@ const establishWireGuardConnection = async (configPath) => {
   }
 };
 const connectWireGuardLinux = async (configPath) => {
-  return new Promise((resolve2) => {
+  return new Promise((resolve) => {
     const process2 = spawn("wg-quick", ["up", configPath], {
       stdio: ["pipe", "pipe", "pipe"]
     });
     process2.on("exit", (code) => {
-      resolve2(code === 0);
+      resolve(code === 0);
     });
     process2.on("error", (_error) => {
-      resolve2(false);
+      resolve(false);
     });
-    setTimeout(() => resolve2(false), PROCESS_TIMEOUT);
+    setTimeout(() => resolve(false), PROCESS_TIMEOUT);
   });
 };
 const connectWireGuardMacOS = async (configPath) => {
-  return new Promise((resolve2) => {
+  return new Promise((resolve) => {
     const process2 = spawn("wg-quick", ["up", configPath], {
       stdio: ["pipe", "pipe", "pipe"]
     });
     process2.on("exit", (code) => {
-      resolve2(code === 0);
+      resolve(code === 0);
     });
     process2.on("error", () => {
-      resolve2(false);
+      resolve(false);
     });
-    setTimeout(() => resolve2(false), PROCESS_TIMEOUT);
+    setTimeout(() => resolve(false), PROCESS_TIMEOUT);
   });
 };
 const connectWireGuardWindows = async (_configPath) => {
@@ -3752,7 +3740,9 @@ const checkWireGuardConnection = async () => {
       console.log("✅ IP geolocation check PASSED - Australian VPN confirmed");
       return true;
     } else {
-      console.log("❌ IP geolocation check FAILED - Not connected to Australian VPN");
+      console.log(
+        "❌ IP geolocation check FAILED - Not connected to Australian VPN"
+      );
       return false;
     }
   } catch (error) {
@@ -3794,9 +3784,13 @@ const checkCurrentIP = async () => {
           console.log(`📍 Australian location confirmed: ${city}, ${region}`);
           return true;
         } else {
-          console.log("🚨 ❌ SECURITY VIOLATION: Not connected to Australian VPN!");
+          console.log(
+            "🚨 ❌ SECURITY VIOLATION: Not connected to Australian VPN!"
+          );
           console.log(`🚫 Current location: ${country} - BROWSING BLOCKED`);
-          console.log("⚠️  Please connect to Australian VPN server to continue");
+          console.log(
+            "⚠️  Please connect to Australian VPN server to continue"
+          );
           return false;
         }
       }
@@ -3813,14 +3807,18 @@ const checkCurrentIP = async () => {
     if (fallbackResponse.ok) {
       const data = await fallbackResponse.json();
       console.log(`🔍 Got real IP via fallback: ${data.ip}`);
-      console.log("⚠️  Could not verify country - assuming non-Australian for security");
+      console.log(
+        "⚠️  Could not verify country - assuming non-Australian for security"
+      );
       return false;
     }
   } catch (error) {
     console.log("🔍 All IP detection methods failed");
   }
   console.log("🚨 ❌ IP check failed - BLOCKING browsing for security");
-  console.log("⚠️  Unable to verify Australian IP - SECURITY MEASURE ACTIVATED");
+  console.log(
+    "⚠️  Unable to verify Australian IP - SECURITY MEASURE ACTIVATED"
+  );
   return false;
 };
 const disconnectWireGuard = async () => {
@@ -3844,24 +3842,24 @@ const disconnectWireGuard = async () => {
   }
 };
 const disconnectWireGuardUnix = async (configPath) => {
-  return new Promise((resolve2) => {
+  return new Promise((resolve) => {
     const downProcess = spawn("wg-quick", ["down", configPath], {
       stdio: ["pipe", "pipe", "pipe"]
     });
     downProcess.on("exit", (code) => {
       wireguardProcess = null;
       if (code === 0) {
-        resolve2(true);
+        resolve(true);
       } else {
         console.error(`❌ WireGuard disconnection failed with code: ${code}`);
-        resolve2(false);
+        resolve(false);
       }
     });
     downProcess.on("error", (error) => {
       console.error("❌ WireGuard disconnect error:", error);
-      resolve2(false);
+      resolve(false);
     });
-    setTimeout(() => resolve2(false), 15e3);
+    setTimeout(() => resolve(false), 15e3);
   });
 };
 const disconnectWireGuardWindows = async () => {
@@ -4142,12 +4140,12 @@ const configureSecureSession = () => {
     }
     const downloadId = `download_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     event.preventDefault();
-    const downloadPromise = new Promise((resolve2, reject) => {
-      pendingDownloads.set(downloadId, { item, resolve: resolve2, reject });
+    const downloadPromise = new Promise((resolve, reject) => {
+      pendingDownloads.set(downloadId, { item, resolve, reject });
       setTimeout(() => {
         if (pendingDownloads.has(downloadId)) {
           pendingDownloads.delete(downloadId);
-          resolve2("local");
+          resolve("local");
         }
       }, 3e4);
     });
@@ -4191,7 +4189,7 @@ const configureSecureSession = () => {
     });
   };
   const handleLocalDownload = async (downloadId, item) => {
-    return new Promise((resolve2) => {
+    return new Promise((resolve) => {
       const downloadStartedData = {
         id: downloadId,
         filename: item.getFilename(),
@@ -4233,7 +4231,7 @@ const configureSecureSession = () => {
             window2.webContents.send("download-completed", completedData);
           }
         });
-        resolve2();
+        resolve();
       });
       item.resume();
     });
@@ -4257,7 +4255,7 @@ const configureSecureSession = () => {
         `temp_${downloadId}_${item.getFilename()}`
       );
       item.setSavePath(tempPath);
-      return new Promise((resolve2, reject) => {
+      return new Promise((resolve, reject) => {
         item.on("updated", (_event, _state) => {
           const progressData = {
             id: downloadId,
@@ -4301,7 +4299,7 @@ const configureSecureSession = () => {
                   window2.webContents.send("download-completed", completedData);
                 }
               });
-              resolve2();
+              resolve();
             } catch (uploadError) {
               console.error("❌ Meta storage upload failed:", uploadError);
               const errorData = {
@@ -4353,7 +4351,7 @@ const configureSecureSession = () => {
         });
       }
     });
-    await new Promise((resolve2) => setTimeout(resolve2, 2e3));
+    await new Promise((resolve) => setTimeout(resolve, 2e3));
     console.log(`🔄 Meta storage upload simulated for: ${filename}`);
     return { fileId: `meta_${downloadId}`, success: true };
   };
@@ -4612,24 +4610,7 @@ function createBrowserWindow(isMain = false) {
         "🌐 App OAuth popup detected, opening in external browser:",
         url
       );
-      if (urlLower.includes("accounts.google.com") && !urlLower.includes("code_challenge")) {
-        try {
-          const { codeVerifier, codeChallenge } = generatePKCECodes();
-          global.pkceCodeVerifier = codeVerifier;
-          const authUrl = new URL(url);
-          authUrl.searchParams.append("code_challenge", codeChallenge);
-          authUrl.searchParams.append("code_challenge_method", "S256");
-          shell.openExternal(authUrl.toString());
-        } catch (error) {
-          console.log(
-            "⚠️ PKCE enhancement failed, opening original URL:",
-            error
-          );
-          shell.openExternal(url);
-        }
-      } else {
-        shell.openExternal(url);
-      }
+      shell.openExternal(url);
       return { action: "deny" };
     }
     if (urlLower.startsWith("https://")) {
@@ -4974,7 +4955,7 @@ ipcMain.handle(
   async () => {
     try {
       const psCommand = `(Invoke-WebRequest -Uri "${IP_GEOLOCATION_API}" -UseBasicParsing).Content | ConvertFrom-Json | ConvertTo-Json -Compress`;
-      return new Promise((resolve2) => {
+      return new Promise((resolve) => {
         const psProcess = spawn("powershell", ["-Command", psCommand], {
           stdio: ["pipe", "pipe", "pipe"]
         });
@@ -5004,7 +4985,7 @@ ipcMain.handle(
                 const realIP = fallbackOutput.trim();
                 if (realIP && realIP.match(/^\d+\.\d+\.\d+\.\d+$/)) {
                   console.log(`🔍 Got real IP via fallback: ${realIP}`);
-                  resolve2({
+                  resolve({
                     ip: realIP,
                     country: "AU",
                     // Assume AU since you're using the app
@@ -5014,7 +4995,7 @@ ipcMain.handle(
                     isAustralia: true
                   });
                 } else {
-                  resolve2({
+                  resolve({
                     ip: "Unknown",
                     country: "Unknown",
                     countryName: "Unknown",
@@ -5025,7 +5006,7 @@ ipcMain.handle(
                 }
               });
               fallbackProcess.on("error", () => {
-                resolve2({
+                resolve({
                   ip: "Unknown",
                   country: "Unknown",
                   countryName: "Unknown",
@@ -5048,7 +5029,7 @@ ipcMain.handle(
             console.log(
               `🔍 Real IP check result: ${result.ip} (${result.city}, ${result.countryName})`
             );
-            resolve2(result);
+            resolve(result);
           } catch (_error) {
             console.log("🔧 Failed to parse IP info, trying simpler check...");
             const simpleCommand = `(Invoke-WebRequest -Uri "https://ipinfo.io/ip" -UseBasicParsing).Content.Trim()`;
@@ -5067,7 +5048,7 @@ ipcMain.handle(
               const realIP = fallbackOutput.trim();
               if (realIP && realIP.match(/^\d+\.\d+\.\d+\.\d+$/)) {
                 console.log(`🔍 Got real IP via final fallback: ${realIP}`);
-                resolve2({
+                resolve({
                   ip: realIP,
                   country: "AU",
                   // Assume AU since you're using the app
@@ -5077,7 +5058,7 @@ ipcMain.handle(
                   isAustralia: true
                 });
               } else {
-                resolve2({
+                resolve({
                   ip: "Unknown",
                   country: "Unknown",
                   countryName: "Unknown",
@@ -5105,7 +5086,7 @@ ipcMain.handle(
             const realIP = altOutput.trim();
             if (realIP && realIP.match(/^\d+\.\d+\.\d+\.\d+$/)) {
               console.log(`🔍 Got real IP via alternative method: ${realIP}`);
-              resolve2({
+              resolve({
                 ip: realIP,
                 country: "AU",
                 countryName: "Australia",
@@ -5114,7 +5095,7 @@ ipcMain.handle(
                 isAustralia: true
               });
             } else {
-              resolve2({
+              resolve({
                 ip: "Unknown",
                 country: "Unknown",
                 countryName: "Unknown",
@@ -5125,7 +5106,7 @@ ipcMain.handle(
             }
           });
           altProcess.on("error", () => {
-            resolve2({
+            resolve({
               ip: "Unknown",
               country: "Unknown",
               countryName: "Unknown",
@@ -5152,7 +5133,7 @@ ipcMain.handle(
               console.log(
                 `🔍 Got real IP via final timeout fallback: ${realIP}`
               );
-              resolve2({
+              resolve({
                 ip: realIP,
                 country: "AU",
                 countryName: "Australia",
@@ -5161,7 +5142,7 @@ ipcMain.handle(
                 isAustralia: true
               });
             } else {
-              resolve2({
+              resolve({
                 ip: "Unknown",
                 country: "Unknown",
                 countryName: "Unknown",
@@ -5172,7 +5153,7 @@ ipcMain.handle(
             }
           });
           finalProcess.on("error", () => {
-            resolve2({
+            resolve({
               ip: "Unknown",
               country: "Unknown",
               countryName: "Unknown",
@@ -5375,7 +5356,7 @@ ipcMain.handle("meta-storage-get-status", async () => {
 });
 ipcMain.handle("meta-storage-connect", async (_event, _accessToken) => {
   console.log("🔗 Meta storage connection requested");
-  await new Promise((resolve2) => setTimeout(resolve2, 1e3));
+  await new Promise((resolve) => setTimeout(resolve, 1e3));
   return {
     success: true,
     accountName: "User Meta Account",
@@ -5859,122 +5840,7 @@ process.on("SIGTERM", () => {
   app.quit();
 });
 app.setAsDefaultProtocolClient("aussievault");
-const exchangeCodeForToken = async (code) => {
-  const codeVerifier = global.pkceCodeVerifier;
-  if (!codeVerifier) {
-    console.error("PKCE code verifier not found.");
-    throw new Error("PKCE code verifier not found.");
-  }
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  if (!clientId || clientId === "YOUR_CLIENT_ID") {
-    throw new Error(
-      "Google OAuth not configured. Please set GOOGLE_CLIENT_ID environment variable."
-    );
-  }
-  console.log("🔄 Exchanging authorization code for tokens...");
-  const response = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      code,
-      client_id: clientId,
-      redirect_uri: "aussievault://callback",
-      grant_type: "authorization_code",
-      code_verifier: codeVerifier
-    })
-  });
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error("❌ Token exchange failed:", response.status, errorText);
-    throw new Error(
-      `Token exchange failed: ${response.status} ${response.statusText}`
-    );
-  }
-  const tokens = await response.json();
-  console.log("✅ OAuth tokens received successfully");
-  return tokens;
-};
-app.on("open-url", (event, url) => {
-  event.preventDefault();
-  console.log("Received OAuth callback URL:", url);
-  const urlObj = new URL(url);
-  const authCode = urlObj.searchParams.get("code");
-  const error = urlObj.searchParams.get("error");
-  if (authCode) {
-    console.log("OAuth Authorization Code:", authCode);
-    exchangeCodeForToken(authCode).then(async (tokens) => {
-      const userResponse = await fetch(
-        `https://www.googleapis.com/oauth2/v1/userinfo?access_token=${tokens.access_token}`
-      );
-      const userInfo = await userResponse.json();
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("google-signin-success", userInfo);
-      }
-    }).catch((err) => {
-      console.error("Error exchanging code:", err);
-      if (mainWindow) {
-        mainWindow.webContents.send("oauth-error", err.message);
-      }
-    });
-  } else if (error) {
-    console.error("OAuth Error:", error);
-    if (mainWindow) {
-      mainWindow.webContents.send("oauth-error", error);
-    }
-  }
-});
 app.on("second-instance", (_event, argv) => {
-  const url = argv.find((arg) => arg.startsWith("aussievault://"));
-  if (url) {
-    const urlObj = new URL(url);
-    const authCode = urlObj.searchParams.get("code");
-    const error = urlObj.searchParams.get("error");
-    if (authCode) {
-      console.log("OAuth Authorization Code (second-instance):", authCode);
-      exchangeCodeForToken(authCode).then(async (tokens) => {
-        const userResponse = await fetch(
-          `https://www.googleapis.com/oauth2/v1/userinfo?access_token=${tokens.access_token}`
-        );
-        const userInfo = await userResponse.json();
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send("google-signin-success", userInfo);
-        }
-      }).catch((err) => {
-        console.error("Error exchanging code:", err);
-        if (mainWindow) {
-          mainWindow.webContents.send("oauth-error", err.message);
-        }
-      });
-    } else if (error) {
-      console.error("OAuth Error (second-instance):", error);
-      if (mainWindow) {
-        mainWindow.webContents.send("oauth-error", error);
-      }
-    }
-  }
-});
-ipcMain.on("start-google-signin", () => {
-  const { codeVerifier, codeChallenge } = generatePKCECodes();
-  global.pkceCodeVerifier = codeVerifier;
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  console.log("🔐 Starting Google OAuth flow...");
-  console.log(
-    "📋 Client ID configured:",
-    clientId ? `${clientId.substring(0, 20)}...` : "NOT SET"
-  );
-  if (!clientId || clientId === "YOUR_CLIENT_ID") {
-    console.error("❌ GOOGLE_CLIENT_ID not properly configured");
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send(
-        "oauth-error",
-        "Google OAuth not configured. Please set GOOGLE_CLIENT_ID environment variable."
-      );
-    }
-    return;
-  }
-  const signInUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=aussievault://callback&response_type=code&scope=profile%20email&code_challenge=${codeChallenge}&code_challenge_method=S256`;
-  console.log("🌐 Opening OAuth URL in external browser...");
-  shell.openExternal(signInUrl);
 });
 export {
   MAIN_DIST,

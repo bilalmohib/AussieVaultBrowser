@@ -99,6 +99,7 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
   const [isDebugAuthModalOpen, setIsDebugAuthModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isSharePointSidebarOpen, setIsSharePointSidebarOpen] = useState(false);
+  // Google Drive removed
   const [zoomLevel, setZoomLevel] = useState(100);
   const [contextMenu, setContextMenu] = useState<{
     visible: boolean;
@@ -2840,6 +2841,8 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
       />
+
+      {/* Google Drive Modal removed */}
 
       {/* SharePoint Sidebar */}
       <SharePointSidebar

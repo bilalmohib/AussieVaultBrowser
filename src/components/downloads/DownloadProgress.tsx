@@ -2,7 +2,7 @@ import React from "react";
 import { Progress } from "../ui/progress";
 import { Badge } from "../ui/badge";
 import { Card, CardContent } from "../ui/card";
-import { Cloud, HardDrive, FileText, Upload } from "lucide-react";
+import { Cloud, HardDrive, FileText, Upload, X } from "lucide-react";
 
 interface DownloadProgressData {
   id: string;
@@ -17,10 +17,12 @@ interface DownloadProgressData {
 
 interface DownloadProgressProps {
   download: DownloadProgressData;
+  onClose?: (id: string) => void;
 }
 
 export const DownloadProgress: React.FC<DownloadProgressProps> = ({
   download,
+  onClose,
 }) => {
   const formatFileSize = (bytes: number) => {
     if (bytes === 0) return "0 Bytes";
@@ -66,7 +68,17 @@ export const DownloadProgress: React.FC<DownloadProgressProps> = ({
 
   return (
     <Card className="fixed bottom-4 right-4 w-80 z-50 shadow-lg">
-      <CardContent className="p-4">
+      {onClose && (
+        <button
+          type="button"
+          onClick={() => onClose(download.id)}
+          className="absolute top-1.5 right-1.5 h-6 w-6 inline-flex items-center justify-center rounded-md text-slate-500 hover:text-slate-800 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50"
+          aria-label="Close"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      )}
+      <CardContent className="p-4 relative">
         <div className="flex items-start gap-3">
           <div className={`p-2 rounded-full ${getTypeColor()} text-white`}>
             {getIcon()}

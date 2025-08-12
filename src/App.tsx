@@ -49,8 +49,12 @@ function AppContent() {
   const [vaultError, setVaultError] = useState<string | null>(null);
   const [initProgress, setInitProgress] = useState(0);
 
-  // Initialize services in sequence
+  // Initialize services only AFTER authentication
   useEffect(() => {
+    if (!isAuthenticated || !user) {
+      return;
+    }
+
     const initializeServices = async () => {
       try {
         // Stage 1: Environment validation
@@ -175,7 +179,7 @@ function AppContent() {
           // For now, allow continuation without vault
         }
         
-        // Stage 3: VPN initialization
+        // Stage 3: VPN initialization (only after user is authenticated)
         setInitStage('vpn');
         setInitProgress(75);
         
@@ -334,7 +338,7 @@ function AppContent() {
     };
 
     initializeServices();
-  }, []);
+  }, [isAuthenticated, user]);
 
   // Monitor VPN status changes and log to database
   useEffect(() => {
@@ -446,9 +450,77 @@ function AppContent() {
     }
   };
 
-  // Show error screen if initialization failed
+  // Always show login first when not authenticated
+  if (!isAuthenticated || !user) {
+    return (
+      <ClerkLoginForm 
+        onAuthSuccess={async (userData) => {
+          // Initialize database session for the authenticated user
+          try {
+            const sessionSuccess = await SecureBrowserDatabaseService.initializeUserSession(
+              userData.email, 
+              userData.name
+            );
+            
+            if (sessionSuccess) {
+              try {
+                const vpnConnected = await vpnService.isConnected();
+
+                if (vpnConnected) {
+                  const envConfigStr = await window.secureBrowser?.system.getEnvironment();
+                  const currentEnvConfig = envConfigStr ? JSON.parse(envConfigStr) : {};
+                  const endpoint = currentEnvConfig?.WIREGUARD_ENDPOINT || '134.199.169.102:59926';
+                  
+                  await SecureBrowserDatabaseService.updateVPNStatus(
+                    true,
+                    endpoint,
+                    'Australia'
+                  );
+                  
+                  await SecureBrowserDatabaseService.logVPNConnection(
+                    endpoint,
+                    'Sydney, Australia',
+                    '127.0.0.1',
+                    '134.199.169.102'
+                  );
+                }
+              } catch {
+                // ignore
+              }
+              SecureBrowserDatabaseService.startSessionMonitoring();
+            } else {
+              await SecureBrowserDatabaseService.logSecurityEvent(
+                'unauthorized_access',
+                `Database session init failed for ${userData.email} - continuing without DB tracking`,
+                'medium'
+              );
+            }
+          } catch (error) {
+            await SecureBrowserDatabaseService.logSecurityEvent(
+              'unauthorized_access',
+              `Database session init error for ${userData.email}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              'high'
+            );
+          }
+          
+          // Set authentication state and trigger initialization flow
+          setErrors([]);
+          setInitStage('auth');
+          setInitProgress(0);
+          setUser(userData);
+          setIsAuthenticated(true);
+        }}
+        onAuthError={(error) => {
+          // Keep showing login; do not render global error screen while logged out
+          // Optionally surface a non-blocking error via toast/sonner elsewhere
+          console.error('Authentication error:', error);
+        }}
+      />
+    );
+  }
+
+  // Show error screen if initialization failed (only when authenticated)
   if (errors.length > 0) {
-    // Check if errors are critical (require reload) or can be cleared
     const hasCriticalErrors = errors.some(error => error.critical || error.type === 'config');
     
     return (
@@ -457,30 +529,22 @@ function AppContent() {
         vpnStatus={vpnStatusInfo || undefined}
         environmentStatus={envStatusInfo || undefined}
         onRetry={() => {
-          // console.log('🔄 Retry clicked - clearing errors without reload for non-critical issues');
           setErrors([]);
-          
-          // Only reload for critical errors, otherwise just retry initialization
           if (hasCriticalErrors) {
-            // console.log('⚠️ Critical error detected - performing full reload');
             window.location.reload();
           } else {
-            // console.log('✅ Non-critical error - retrying without reload');
             setInitStage('auth');
             setInitProgress(0);
-            // Re-run initialization without reload
-            // The useEffect will handle re-initialization when initStage changes
           }
         }}
         onOpenSettings={() => {
-          // console.log('Opening settings...');
           // TODO: Implement settings modal
         }}
       />
     );
   }
 
-  // Show loading screen during initialization
+  // Show loading screen during initialization (post-auth only)
   if (initStage !== 'ready') {
     const currentMessage = (() => {
       switch (initStage) {
@@ -505,97 +569,6 @@ function AppContent() {
     );
   }
 
-  // Show login form if not authenticated
-  if (!isAuthenticated || !user) {
-    return (
-      <ClerkLoginForm 
-        onAuthSuccess={async (userData) => {
-          // console.log('✅ User authenticated via Clerk:', userData);
-
-          // Initialize database session for the authenticated user
-          try {
-            // console.log('🔑 Initializing database session for Clerk user...');
-            const sessionSuccess = await SecureBrowserDatabaseService.initializeUserSession(
-              userData.email, 
-              userData.name
-            );
-            
-            if (sessionSuccess) {
-              // console.log('✅ Database session initialized successfully');
-              
-              // Now that we have a session, update VPN status if connected
-              try {
-                const vpnConnected = await vpnService.isConnected();
-                // console.log('🔍 Checking VPN status after session creation:', vpnConnected);
-
-                if (vpnConnected) {
-                  // Get current environment config
-                  const envConfigStr = await window.secureBrowser?.system.getEnvironment();
-                  const currentEnvConfig = envConfigStr ? JSON.parse(envConfigStr) : {};
-                  const endpoint = currentEnvConfig?.WIREGUARD_ENDPOINT || '134.199.169.102:59926';
-                  
-                  // Update session with VPN status
-                  await SecureBrowserDatabaseService.updateVPNStatus(
-                    true,
-                    endpoint,
-                    'Australia'
-                  );
-                  
-                  // Create VPN connection record for admin panel monitoring
-                  await SecureBrowserDatabaseService.logVPNConnection(
-                    endpoint,
-                    'Sydney, Australia',
-                    '127.0.0.1', // Will be updated with actual client IP
-                    '134.199.169.102' // VPN IP
-                  );
-                  
-                  // console.log('✅ VPN status synchronized to database');
-                } else {
-                  // console.log('⚠️ VPN not connected during session initialization');
-                }
-              } catch (error) {
-                // console.error('❌ Failed to sync VPN status after session creation:', error);
-              }
-              
-              // Start session monitoring
-              SecureBrowserDatabaseService.startSessionMonitoring();
-            } else {
-              // console.warn('⚠️ Database session initialization failed, but continuing with authentication');
-              // Log the failure but don't block authentication
-              await SecureBrowserDatabaseService.logSecurityEvent(
-                'unauthorized_access',
-                `Database session init failed for ${userData.email} - continuing without DB tracking`,
-                'medium'
-              );
-            }
-          } catch (error) {
-            // console.error('❌ Failed to initialize database session:', error);
-            // Log the error but don't block authentication
-            await SecureBrowserDatabaseService.logSecurityEvent(
-              'unauthorized_access',
-              `Database session init error for ${userData.email}: ${error instanceof Error ? error.message : 'Unknown error'}`,
-              'high'
-            );
-          }
-          
-          // Set authentication state
-          setUser(userData);
-          setIsAuthenticated(true);
-        }}
-        onAuthError={(error) => {
-          // console.error('❌ Clerk authentication failed:', error);
-          setErrors([{
-            type: 'config',
-            title: 'Authentication Failed',
-            message: error,
-            details: ['Check your internet connection', 'Verify Clerk configuration'],
-            critical: false
-          }]);
-        }}
-      />
-    );
-  }
-
   // Enhanced logout to clean up database session
   const handleLogout = async () => {
     try {
@@ -615,6 +588,9 @@ function AppContent() {
       // Clear local state
       setUser(null);
       setIsAuthenticated(false);
+      setErrors([]);
+      setInitStage('auth');
+      setInitProgress(0);
 
       // console.log('✅ User logged out successfully');
     } catch (error) {
@@ -622,6 +598,9 @@ function AppContent() {
       // Still proceed with logout even if database cleanup fails
       setUser(null);
       setIsAuthenticated(false);
+      setErrors([]);
+      setInitStage('auth');
+      setInitProgress(0);
     }
   };
 

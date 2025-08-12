@@ -693,6 +693,20 @@ const configureSecureSession = (): void => {
       return;
     }
 
+    // ✅ Always allow Clerk authentication domains regardless of VPN status
+    if (
+      url.includes("clerk.dev") ||
+      url.includes("clerk.com") ||
+      url.includes("clerk.accounts.dev")
+    ) {
+      console.log(
+        "✅ 🇦🇺 SHARED AUTH: Allowing Clerk auth request:",
+        details.url
+      );
+      callback({ cancel: false });
+      return;
+    }
+
     // �🚨 STRICT SECURITY: Block OTHER external requests if VPN not connected to Australia
     if (!vpnConnected && url.startsWith("https://")) {
       console.log(
@@ -703,20 +717,6 @@ const configureSecureSession = (): void => {
         "⚠️  Connect to Australian VPN server to access external websites"
       );
       callback({ cancel: true });
-      return;
-    }
-
-    // Allow Clerk authentication domains when VPN is connected
-    if (
-      url.includes("clerk.dev") ||
-      url.includes("clerk.com") ||
-      url.includes("clerk.accounts.dev")
-    ) {
-      console.log(
-        "✅ 🇦🇺 SHARED AUTH: Allowing Clerk auth request via Australian VPN:",
-        details.url
-      );
-      callback({ cancel: false });
       return;
     }
 
@@ -1455,6 +1455,19 @@ const configureSecureSession = (): void => {
       return;
     }
 
+    // ✅ Always allow Clerk domains (auth APIs and image CDNs) regardless of VPN status
+    if (
+      url.includes("clerk.dev") ||
+      url.includes("clerk.com") ||
+      url.includes("clerk.accounts.dev") ||
+      url.includes("images.clerk.dev") ||
+      url.includes("img.clerk.com") ||
+      url.includes("gravatar.com")
+    ) {
+      callback({ cancel: false });
+      return;
+    }
+
     // Allow HTTPS requests when VPN is connected to Australia
     if (vpnConnected && url.startsWith("https://")) {
       callback({ cancel: false });
@@ -1468,7 +1481,7 @@ const configureSecureSession = (): void => {
       return;
     }
 
-    // If not connected to Australian VPN, show error but allow IP detection
+    // If not connected to Australian VPN, block other external requests
     if (!vpnConnected && url.startsWith("https://")) {
       console.log("🚫 🇦🇺 BLOCKING - Australian VPN required:", details.url);
       callback({ cancel: true });
@@ -1515,7 +1528,7 @@ const configureSecureSession = (): void => {
             "script-src 'self' 'unsafe-inline' 'unsafe-eval' file: chrome-extension: moz-extension: extension:; " +
             "style-src 'self' 'unsafe-inline' https: file: chrome-extension: moz-extension: extension:; " +
             "connect-src 'self' https: wss: data: file: chrome-extension: moz-extension: extension:; " +
-            "img-src 'self' https: data: blob: file: chrome-extension: moz-extension: extension:; " +
+            "img-src 'self' https: data: blob: file: chrome-extension: moz-extension: extension: https://*.clerk.dev https://clerk.com https://*.clerk.com https://gravatar.com https://*.gravatar.com; " +
             "font-src 'self' https: data: file: chrome-extension: moz-extension: extension:; " +
             "media-src 'self' https: data: file: chrome-extension: moz-extension: extension:; " +
             "frame-src 'self' https: file: chrome-extension: moz-extension: extension:; " +
@@ -1758,10 +1771,7 @@ function createBrowserWindow(isMain: boolean = false): BrowserWindow {
   // Load the app
   if (VITE_DEV_SERVER_URL) {
     newWindow.loadURL(VITE_DEV_SERVER_URL);
-    // Open DevTools only in development
-    if (process.env.NODE_ENV === "development") {
-      newWindow.webContents.openDevTools();
-    }
+    // Do not auto-open DevTools on startup to improve launch performance
   } else {
     newWindow.loadFile(path.join(RENDERER_DIST, "index.html"));
   }

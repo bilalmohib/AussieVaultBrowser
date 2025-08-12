@@ -10,7 +10,7 @@ import {
 import { Badge } from "../ui/badge";
 import { Separator } from "../ui/separator";
 import { LoadingScreen } from "../ui/loading-screen";
-import { ErrorDisplay } from "../ui/error-display";
+// import { ErrorDisplay } from "../ui/error-display";
 import clerkAuth from "../../services/clerkService";
 import { SecureBrowserDatabaseService } from "../../services/databaseService";
 import type { AuthState } from "../../types/clerk";
@@ -286,27 +286,7 @@ export const ClerkLoginForm: React.FC<ClerkLoginFormProps> = ({
     );
   }
 
-  // Show error if initialization failed
-  if (initError) {
-    return (
-      <ErrorDisplay
-        errors={[
-          {
-            type: "config",
-            title: "Authentication Service Error",
-            message: initError,
-            details: [
-              "Check your Clerk configuration",
-              "Verify VITE_CLERK_PUBLISHABLE_KEY is set",
-              "Ensure internet connectivity",
-            ],
-            critical: true,
-          },
-        ]}
-        onRetry={() => window.location.reload()}
-      />
-    );
-  }
+  // Do NOT show global error screen when logged out; surface inline error instead
 
   // Show loading if user is already authenticated
   if (authState.isSignedIn && authState.user) {
@@ -339,6 +319,15 @@ export const ClerkLoginForm: React.FC<ClerkLoginFormProps> = ({
 
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-slate-50 flex items-center justify-center p-4">
         <div className="w-full max-w-md space-y-6">
+          {initError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+              <div className="font-medium mb-1">Authentication service error</div>
+              <div className="text-sm">{initError}</div>
+              <div className="mt-2 flex gap-2">
+                <Button variant="outline" onClick={() => window.location.reload()} className="h-8 px-3">Retry</Button>
+              </div>
+            </div>
+          )}
           {/* Header */}
           <div className="text-center space-y-4">
             <div className="flex justify-center">

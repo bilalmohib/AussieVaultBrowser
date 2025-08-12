@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { AlertTriangle, Wifi, WifiOff, Settings, CheckCircle, XCircle, Info } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from './alert';
 import { Button } from './button';
+import clerkAuth from '@/services/clerkService';
 import { Card, CardContent, CardHeader, CardTitle } from './card';
 
 export interface ErrorInfo {
@@ -49,11 +50,67 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
   onRetry,
   onOpenSettings
 }) => {
+  const [isSignedIn, setIsSignedIn] = useState<boolean>(clerkAuth.isGloballyAuthenticated());
+  const [userAvatar, setUserAvatar] = useState<string | undefined>(() => clerkAuth.getCurrentUser()?.imageUrl || undefined);
+  const [userEmail, setUserEmail] = useState<string | undefined>(() => clerkAuth.getCurrentUser()?.emailAddresses?.[0]?.emailAddress);
+
+  useEffect(() => {
+    const handleState = (state: { isSignedIn: boolean; user: any }) => {
+      setIsSignedIn(state.isSignedIn);
+      setUserAvatar(state.user?.imageUrl || undefined);
+      const email = state.user?.emailAddresses?.[0]?.emailAddress;
+      setUserEmail(email);
+    };
+    clerkAuth.onAuthStateChange(handleState);
+    // Initialize from current state
+    handleState({ isSignedIn: clerkAuth.isGloballyAuthenticated(), user: clerkAuth.getCurrentUser() });
+    return () => clerkAuth.removeAuthStateListener(handleState);
+  }, []);
   const criticalErrors = errors.filter(error => error.critical);
   const warnings = errors.filter(error => !error.critical);
 
   return (
     <div className="min-h-screen bg-gray-50 w-full overflow-auto">
+      {/* Top Navbar with Clerk user status */}
+      <div className="w-full border-b border-gray-200 bg-white/90 backdrop-blur sticky top-0 z-10">
+        <div className="max-w-6xl mx-auto px-4 h-12 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <img
+              src="/assets/aussie-browser-logo-32.png"
+              alt="Aussie Vault Browser"
+              className="h-7 w-7 rounded-md"
+            />
+            <div className="font-semibold text-gray-900">Aussie Vault Browser</div>
+          </div>
+          <div className="flex items-center gap-3">
+            {isSignedIn ? (
+              <>
+                <div className="flex items-center gap-3">
+                  {userAvatar ? (
+                    <img src={userAvatar} alt={userEmail || 'user'} className="h-8 w-8 rounded-full border border-gray-200" />
+                  ) : (
+                    <div className="h-8 w-8 rounded-full bg-gray-200" />
+                  )}
+                  <span className="text-sm text-gray-700 font-medium">{userEmail || '—'}</span>
+                </div>
+                <Button
+                  variant="outline"
+                  className="h-8 px-3"
+                  onClick={async () => {
+                    try { await clerkAuth.signOut(); } catch {}
+                    window.location.reload();
+                  }}
+                >
+                  Sign out
+                </Button>
+              </>
+            ) : (
+              <Button onClick={() => clerkAuth.signIn().catch(() => {})} className="h-9 px-3">Sign in</Button>
+            )}
+          </div>
+        </div>
+      </div>
+
       <div className="w-full p-4 space-y-6">
         {/* Header */}
         <div className="text-center">

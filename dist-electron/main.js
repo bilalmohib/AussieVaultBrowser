@@ -3715,31 +3715,31 @@ const establishWireGuardConnection = async (configPath) => {
   }
 };
 const connectWireGuardLinux = async (configPath) => {
-  return new Promise((resolve2) => {
+  return new Promise((resolve) => {
     const process2 = spawn("wg-quick", ["up", configPath], {
       stdio: ["pipe", "pipe", "pipe"]
     });
     process2.on("exit", (code) => {
-      resolve2(code === 0);
+      resolve(code === 0);
     });
     process2.on("error", (_error) => {
-      resolve2(false);
+      resolve(false);
     });
-    setTimeout(() => resolve2(false), PROCESS_TIMEOUT);
+    setTimeout(() => resolve(false), PROCESS_TIMEOUT);
   });
 };
 const connectWireGuardMacOS = async (configPath) => {
-  return new Promise((resolve2) => {
+  return new Promise((resolve) => {
     const process2 = spawn("wg-quick", ["up", configPath], {
       stdio: ["pipe", "pipe", "pipe"]
     });
     process2.on("exit", (code) => {
-      resolve2(code === 0);
+      resolve(code === 0);
     });
     process2.on("error", () => {
-      resolve2(false);
+      resolve(false);
     });
-    setTimeout(() => resolve2(false), PROCESS_TIMEOUT);
+    setTimeout(() => resolve(false), PROCESS_TIMEOUT);
   });
 };
 const connectWireGuardWindows = async (_configPath) => {
@@ -3752,7 +3752,9 @@ const checkWireGuardConnection = async () => {
       console.log("✅ IP geolocation check PASSED - Australian VPN confirmed");
       return true;
     } else {
-      console.log("❌ IP geolocation check FAILED - Not connected to Australian VPN");
+      console.log(
+        "❌ IP geolocation check FAILED - Not connected to Australian VPN"
+      );
       return false;
     }
   } catch (error) {
@@ -3794,9 +3796,13 @@ const checkCurrentIP = async () => {
           console.log(`📍 Australian location confirmed: ${city}, ${region}`);
           return true;
         } else {
-          console.log("🚨 ❌ SECURITY VIOLATION: Not connected to Australian VPN!");
+          console.log(
+            "🚨 ❌ SECURITY VIOLATION: Not connected to Australian VPN!"
+          );
           console.log(`🚫 Current location: ${country} - BROWSING BLOCKED`);
-          console.log("⚠️  Please connect to Australian VPN server to continue");
+          console.log(
+            "⚠️  Please connect to Australian VPN server to continue"
+          );
           return false;
         }
       }
@@ -3813,14 +3819,18 @@ const checkCurrentIP = async () => {
     if (fallbackResponse.ok) {
       const data = await fallbackResponse.json();
       console.log(`🔍 Got real IP via fallback: ${data.ip}`);
-      console.log("⚠️  Could not verify country - assuming non-Australian for security");
+      console.log(
+        "⚠️  Could not verify country - assuming non-Australian for security"
+      );
       return false;
     }
   } catch (error) {
     console.log("🔍 All IP detection methods failed");
   }
   console.log("🚨 ❌ IP check failed - BLOCKING browsing for security");
-  console.log("⚠️  Unable to verify Australian IP - SECURITY MEASURE ACTIVATED");
+  console.log(
+    "⚠️  Unable to verify Australian IP - SECURITY MEASURE ACTIVATED"
+  );
   return false;
 };
 const disconnectWireGuard = async () => {
@@ -3844,24 +3854,24 @@ const disconnectWireGuard = async () => {
   }
 };
 const disconnectWireGuardUnix = async (configPath) => {
-  return new Promise((resolve2) => {
+  return new Promise((resolve) => {
     const downProcess = spawn("wg-quick", ["down", configPath], {
       stdio: ["pipe", "pipe", "pipe"]
     });
     downProcess.on("exit", (code) => {
       wireguardProcess = null;
       if (code === 0) {
-        resolve2(true);
+        resolve(true);
       } else {
         console.error(`❌ WireGuard disconnection failed with code: ${code}`);
-        resolve2(false);
+        resolve(false);
       }
     });
     downProcess.on("error", (error) => {
       console.error("❌ WireGuard disconnect error:", error);
-      resolve2(false);
+      resolve(false);
     });
-    setTimeout(() => resolve2(false), 15e3);
+    setTimeout(() => resolve(false), 15e3);
   });
 };
 const disconnectWireGuardWindows = async () => {
@@ -3973,6 +3983,14 @@ const configureSecureSession = () => {
       callback({ cancel: false });
       return;
     }
+    if (url.includes("clerk.dev") || url.includes("clerk.com") || url.includes("clerk.accounts.dev")) {
+      console.log(
+        "✅ 🇦🇺 SHARED AUTH: Allowing Clerk auth request:",
+        details.url
+      );
+      callback({ cancel: false });
+      return;
+    }
     if (!vpnConnected && url.startsWith("https://")) {
       console.log(
         "🚫 🇦🇺 SHARED AUTH: BLOCKING external request - Australian VPN required:",
@@ -3982,14 +4000,6 @@ const configureSecureSession = () => {
         "⚠️  Connect to Australian VPN server to access external websites"
       );
       callback({ cancel: true });
-      return;
-    }
-    if (url.includes("clerk.dev") || url.includes("clerk.com") || url.includes("clerk.accounts.dev")) {
-      console.log(
-        "✅ 🇦🇺 SHARED AUTH: Allowing Clerk auth request via Australian VPN:",
-        details.url
-      );
-      callback({ cancel: false });
       return;
     }
     if (url.startsWith("http://")) {
@@ -4142,12 +4152,12 @@ const configureSecureSession = () => {
     }
     const downloadId = `download_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     event.preventDefault();
-    const downloadPromise = new Promise((resolve2, reject) => {
-      pendingDownloads.set(downloadId, { item, resolve: resolve2, reject });
+    const downloadPromise = new Promise((resolve, reject) => {
+      pendingDownloads.set(downloadId, { item, resolve, reject });
       setTimeout(() => {
         if (pendingDownloads.has(downloadId)) {
           pendingDownloads.delete(downloadId);
-          resolve2("local");
+          resolve("local");
         }
       }, 3e4);
     });
@@ -4191,7 +4201,7 @@ const configureSecureSession = () => {
     });
   };
   const handleLocalDownload = async (downloadId, item) => {
-    return new Promise((resolve2) => {
+    return new Promise((resolve) => {
       const downloadStartedData = {
         id: downloadId,
         filename: item.getFilename(),
@@ -4233,7 +4243,7 @@ const configureSecureSession = () => {
             window2.webContents.send("download-completed", completedData);
           }
         });
-        resolve2();
+        resolve();
       });
       item.resume();
     });
@@ -4257,7 +4267,7 @@ const configureSecureSession = () => {
         `temp_${downloadId}_${item.getFilename()}`
       );
       item.setSavePath(tempPath);
-      return new Promise((resolve2, reject) => {
+      return new Promise((resolve, reject) => {
         item.on("updated", (_event, _state) => {
           const progressData = {
             id: downloadId,
@@ -4301,7 +4311,7 @@ const configureSecureSession = () => {
                   window2.webContents.send("download-completed", completedData);
                 }
               });
-              resolve2();
+              resolve();
             } catch (uploadError) {
               console.error("❌ Meta storage upload failed:", uploadError);
               const errorData = {
@@ -4353,7 +4363,7 @@ const configureSecureSession = () => {
         });
       }
     });
-    await new Promise((resolve2) => setTimeout(resolve2, 2e3));
+    await new Promise((resolve) => setTimeout(resolve, 2e3));
     console.log(`🔄 Meta storage upload simulated for: ${filename}`);
     return { fileId: `meta_${downloadId}`, success: true };
   };
@@ -4498,6 +4508,10 @@ const configureSecureSession = () => {
       callback({ cancel: false });
       return;
     }
+    if (url.includes("clerk.dev") || url.includes("clerk.com") || url.includes("clerk.accounts.dev") || url.includes("images.clerk.dev") || url.includes("img.clerk.com") || url.includes("gravatar.com")) {
+      callback({ cancel: false });
+      return;
+    }
     if (vpnConnected && url.startsWith("https://")) {
       callback({ cancel: false });
       return;
@@ -4535,7 +4549,7 @@ const configureSecureSession = () => {
         "Referrer-Policy": ["strict-origin-when-cross-origin"],
         "Permissions-Policy": ["camera=(), microphone=(), geolocation=()"],
         "Content-Security-Policy": [
-          "default-src 'self' file: chrome-extension: moz-extension: extension:; script-src 'self' 'unsafe-inline' 'unsafe-eval' file: chrome-extension: moz-extension: extension:; style-src 'self' 'unsafe-inline' https: file: chrome-extension: moz-extension: extension:; connect-src 'self' https: wss: data: file: chrome-extension: moz-extension: extension:; img-src 'self' https: data: blob: file: chrome-extension: moz-extension: extension:; font-src 'self' https: data: file: chrome-extension: moz-extension: extension:; media-src 'self' https: data: file: chrome-extension: moz-extension: extension:; frame-src 'self' https: file: chrome-extension: moz-extension: extension:; child-src 'self' https: file: chrome-extension: moz-extension: extension:;"
+          "default-src 'self' file: chrome-extension: moz-extension: extension:; script-src 'self' 'unsafe-inline' 'unsafe-eval' file: chrome-extension: moz-extension: extension:; style-src 'self' 'unsafe-inline' https: file: chrome-extension: moz-extension: extension:; connect-src 'self' https: wss: data: file: chrome-extension: moz-extension: extension:; img-src 'self' https: data: blob: file: chrome-extension: moz-extension: extension: https://*.clerk.dev https://clerk.com https://*.clerk.com https://gravatar.com https://*.gravatar.com; font-src 'self' https: data: file: chrome-extension: moz-extension: extension:; media-src 'self' https: data: file: chrome-extension: moz-extension: extension:; frame-src 'self' https: file: chrome-extension: moz-extension: extension:; child-src 'self' https: file: chrome-extension: moz-extension: extension:;"
         ]
       }
     });
@@ -4709,9 +4723,6 @@ function createBrowserWindow(isMain = false) {
   });
   if (VITE_DEV_SERVER_URL) {
     newWindow.loadURL(VITE_DEV_SERVER_URL);
-    if (process.env.NODE_ENV === "development") {
-      newWindow.webContents.openDevTools();
-    }
   } else {
     newWindow.loadFile(path.join(RENDERER_DIST, "index.html"));
   }
@@ -4974,7 +4985,7 @@ ipcMain.handle(
   async () => {
     try {
       const psCommand = `(Invoke-WebRequest -Uri "${IP_GEOLOCATION_API}" -UseBasicParsing).Content | ConvertFrom-Json | ConvertTo-Json -Compress`;
-      return new Promise((resolve2) => {
+      return new Promise((resolve) => {
         const psProcess = spawn("powershell", ["-Command", psCommand], {
           stdio: ["pipe", "pipe", "pipe"]
         });
@@ -5004,7 +5015,7 @@ ipcMain.handle(
                 const realIP = fallbackOutput.trim();
                 if (realIP && realIP.match(/^\d+\.\d+\.\d+\.\d+$/)) {
                   console.log(`🔍 Got real IP via fallback: ${realIP}`);
-                  resolve2({
+                  resolve({
                     ip: realIP,
                     country: "AU",
                     // Assume AU since you're using the app
@@ -5014,7 +5025,7 @@ ipcMain.handle(
                     isAustralia: true
                   });
                 } else {
-                  resolve2({
+                  resolve({
                     ip: "Unknown",
                     country: "Unknown",
                     countryName: "Unknown",
@@ -5025,7 +5036,7 @@ ipcMain.handle(
                 }
               });
               fallbackProcess.on("error", () => {
-                resolve2({
+                resolve({
                   ip: "Unknown",
                   country: "Unknown",
                   countryName: "Unknown",
@@ -5048,7 +5059,7 @@ ipcMain.handle(
             console.log(
               `🔍 Real IP check result: ${result.ip} (${result.city}, ${result.countryName})`
             );
-            resolve2(result);
+            resolve(result);
           } catch (_error) {
             console.log("🔧 Failed to parse IP info, trying simpler check...");
             const simpleCommand = `(Invoke-WebRequest -Uri "https://ipinfo.io/ip" -UseBasicParsing).Content.Trim()`;
@@ -5067,7 +5078,7 @@ ipcMain.handle(
               const realIP = fallbackOutput.trim();
               if (realIP && realIP.match(/^\d+\.\d+\.\d+\.\d+$/)) {
                 console.log(`🔍 Got real IP via final fallback: ${realIP}`);
-                resolve2({
+                resolve({
                   ip: realIP,
                   country: "AU",
                   // Assume AU since you're using the app
@@ -5077,7 +5088,7 @@ ipcMain.handle(
                   isAustralia: true
                 });
               } else {
-                resolve2({
+                resolve({
                   ip: "Unknown",
                   country: "Unknown",
                   countryName: "Unknown",
@@ -5105,7 +5116,7 @@ ipcMain.handle(
             const realIP = altOutput.trim();
             if (realIP && realIP.match(/^\d+\.\d+\.\d+\.\d+$/)) {
               console.log(`🔍 Got real IP via alternative method: ${realIP}`);
-              resolve2({
+              resolve({
                 ip: realIP,
                 country: "AU",
                 countryName: "Australia",
@@ -5114,7 +5125,7 @@ ipcMain.handle(
                 isAustralia: true
               });
             } else {
-              resolve2({
+              resolve({
                 ip: "Unknown",
                 country: "Unknown",
                 countryName: "Unknown",
@@ -5125,7 +5136,7 @@ ipcMain.handle(
             }
           });
           altProcess.on("error", () => {
-            resolve2({
+            resolve({
               ip: "Unknown",
               country: "Unknown",
               countryName: "Unknown",
@@ -5152,7 +5163,7 @@ ipcMain.handle(
               console.log(
                 `🔍 Got real IP via final timeout fallback: ${realIP}`
               );
-              resolve2({
+              resolve({
                 ip: realIP,
                 country: "AU",
                 countryName: "Australia",
@@ -5161,7 +5172,7 @@ ipcMain.handle(
                 isAustralia: true
               });
             } else {
-              resolve2({
+              resolve({
                 ip: "Unknown",
                 country: "Unknown",
                 countryName: "Unknown",
@@ -5172,7 +5183,7 @@ ipcMain.handle(
             }
           });
           finalProcess.on("error", () => {
-            resolve2({
+            resolve({
               ip: "Unknown",
               country: "Unknown",
               countryName: "Unknown",
@@ -5375,7 +5386,7 @@ ipcMain.handle("meta-storage-get-status", async () => {
 });
 ipcMain.handle("meta-storage-connect", async (_event, _accessToken) => {
   console.log("🔗 Meta storage connection requested");
-  await new Promise((resolve2) => setTimeout(resolve2, 1e3));
+  await new Promise((resolve) => setTimeout(resolve, 1e3));
   return {
     success: true,
     accountName: "User Meta Account",

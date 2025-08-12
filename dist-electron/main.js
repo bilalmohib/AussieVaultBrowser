@@ -3605,6 +3605,20 @@ let windows = [];
 let mainWindow = null;
 let vpnConnected = false;
 let wireguardProcess = null;
+let userAuthenticated = false;
+let authenticationComplete = false;
+const setAuthenticationState = (authenticated) => {
+  userAuthenticated = authenticated;
+  authenticationComplete = authenticated;
+  console.log(
+    `🔐 Authentication state updated: ${authenticated ? "LOGGED IN" : "LOGGED OUT"}`
+  );
+  if (authenticated) {
+    console.log("✅ User authenticated - VPN enforcement will begin");
+  } else {
+    console.log("🔓 User logged out - VPN enforcement disabled for login");
+  }
+};
 const pendingDownloads = /* @__PURE__ */ new Map();
 const updateVPNStatus = (connected) => {
   const wasConnected = vpnConnected;
@@ -3976,7 +3990,17 @@ const configureSecureSession = () => {
         callback({ cancel: false });
         return;
       }
-      if (!vpnConnected && url.startsWith("https://")) {
+      if (!authenticationComplete) {
+        if (url.includes("clerk.dev") || url.includes("clerk.com") || url.includes("clerk.accounts.dev") || url.includes("supabase.co") || url.includes("googleapis.com") || url.includes("accounts.google.com")) {
+          console.log(
+            "✅ 🔓 PRE-AUTH: Allowing authentication request before login:",
+            details.url
+          );
+          callback({ cancel: false });
+          return;
+        }
+      }
+      if (authenticationComplete && !vpnConnected && url.startsWith("https://")) {
         console.log(
           "🚫 🇦🇺 SHARED AUTH: BLOCKING external request - Australian VPN required:",
           details.url
@@ -4049,7 +4073,15 @@ const configureSecureSession = () => {
       callback({ cancel: false });
       return;
     }
-    if (!vpnConnected && url.startsWith("https://")) {
+    if (!authenticationComplete) {
+      console.log(
+        "✅ 🔓 PRE-AUTH WEBVIEW: Allowing request before login:",
+        details.url
+      );
+      callback({ cancel: false });
+      return;
+    }
+    if (authenticationComplete && !vpnConnected && url.startsWith("https://")) {
       console.log(
         "🚫 🇦🇺 WEBVIEW: BLOCKING external request - Australian VPN required:",
         details.url
@@ -4744,45 +4776,18 @@ function createBrowserWindow(isMain = false) {
     mainWindow = newWindow;
     setTimeout(async () => {
       try {
-        const alreadyConnected = await checkWireGuardConnection();
-        if (alreadyConnected) {
-          updateVPNStatus(true);
-        } else if (process.env.VPN_AUTO_CONNECT === "true") {
-          const connected = await connectVPN();
-          updateVPNStatus(connected);
-          if (connected) {
-          } else {
-          }
-        } else {
-          updateVPNStatus(false);
-        }
+        console.log(
+          "⏸️ VPN auto-initialization disabled - waiting for authentication"
+        );
+        updateVPNStatus(false);
       } catch (error) {
+        console.error("❌ VPN status initialization error:", error);
         updateVPNStatus(false);
       }
     }, 500);
-    setInterval(async () => {
-      try {
-        console.log("🔍 🇦🇺 Performing periodic Australian VPN verification...");
-        const isStillConnected = await checkWireGuardConnection();
-        if (vpnConnected !== isStillConnected) {
-          if (isStillConnected) {
-            console.log("🇦🇺 ✅ VPN connection to Australia restored");
-          } else {
-            console.log(
-              "🚨 ❌ VPN connection to Australia lost - Blocking all external requests"
-            );
-          }
-          updateVPNStatus(isStillConnected);
-        }
-      } catch (error) {
-        console.log(
-          "🚨 ❌ Periodic VPN check failed - Assuming disconnected for security"
-        );
-        if (vpnConnected) {
-          updateVPNStatus(false);
-        }
-      }
-    }, 3e4);
+    console.log(
+      "⏸️ Periodic VPN verification disabled - waiting for authentication"
+    );
   }
   newWindow.on("closed", () => {
     const index = windows.indexOf(newWindow);
@@ -4987,6 +4992,75 @@ ipcMain.handle("vpn-disconnect", async () => {
     return success;
   } catch (_error) {
     return false;
+  }
+});
+ipcMain.handle(
+  "auth-set-state",
+  async (_event, authenticated) => {
+    console.log(
+      `🔐 Authentication state update received: ${authenticated ? "LOGGED IN" : "LOGGED OUT"}`
+    );
+    setAuthenticationState(authenticated);
+    return true;
+  }
+);
+ipcMain.handle("auth-get-state", async () => {
+  return {
+    authenticated: userAuthenticated,
+    complete: authenticationComplete
+  };
+});
+ipcMain.handle("vpn-start-post-auth", async () => {
+  try {
+    console.log("🔌 Starting VPN connection after authentication...");
+    const vpnConnected2 = await connectVPN();
+    updateVPNStatus(vpnConnected2);
+    if (!vpnConnected2) {
+      console.log("❌ VPN connection failed - starting with restricted access");
+      return {
+        success: false,
+        connected: false,
+        message: "VPN connection failed"
+      };
+    } else {
+      console.log(
+        "✅ VPN connected successfully - unrestricted access enabled"
+      );
+      console.log("🔍 Starting periodic VPN verification after authentication");
+      setInterval(async () => {
+        try {
+          console.log(
+            "🔍 🇦🇺 Performing periodic Australian VPN verification..."
+          );
+          const isStillConnected = await checkWireGuardConnection();
+          if (vpnConnected2 !== isStillConnected) {
+            if (isStillConnected) {
+              console.log("🇦🇺 ✅ VPN connection to Australia restored");
+            } else {
+              console.log(
+                "🚨 ❌ VPN connection to Australia lost - Blocking all external requests"
+              );
+            }
+            updateVPNStatus(isStillConnected);
+          }
+        } catch (error) {
+          console.log(
+            "🚨 ❌ Periodic VPN check failed - Assuming disconnected for security"
+          );
+          if (vpnConnected2) {
+            updateVPNStatus(false);
+          }
+        }
+      }, 3e4);
+      return {
+        success: true,
+        connected: true,
+        message: "VPN connected successfully"
+      };
+    }
+  } catch (error) {
+    console.error("❌ Error starting VPN post-auth:", error);
+    return { success: false, connected: false, message: "VPN startup error" };
   }
 });
 ipcMain.handle(
@@ -5713,14 +5787,8 @@ app.whenReady().then(async () => {
       }
     }
   );
-  console.log("🔌 Starting VPN connection...");
-  const vpnConnected2 = await connectVPN();
-  updateVPNStatus(vpnConnected2);
-  if (!vpnConnected2) {
-    console.log("❌ VPN connection failed - starting with restricted access");
-  } else {
-    console.log("✅ VPN connected successfully - unrestricted access enabled");
-  }
+  console.log("⏸️ VPN connection deferred until after authentication");
+  updateVPNStatus(false);
   createWindow();
 });
 const gotTheLock = app.requestSingleInstanceLock();

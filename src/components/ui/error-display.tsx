@@ -41,6 +41,11 @@ interface ErrorDisplayProps {
   environmentStatus?: EnvironmentStatus;
   onRetry?: () => void;
   onOpenSettings?: () => void;
+  // Optional props from parent to control auth UI
+  user?: { name: string; email: string; accessLevel: number; avatar?: string };
+  isAuthenticated?: boolean;
+  onLogin?: () => void;
+  onLogout?: () => void;
 }
 
 export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
@@ -48,7 +53,11 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
   vpnStatus,
   environmentStatus,
   onRetry,
-  onOpenSettings
+  onOpenSettings,
+  user,
+  isAuthenticated,
+  onLogin,
+  onLogout
 }) => {
   const [isSignedIn, setIsSignedIn] = useState<boolean>(false);
   const [userEmail, setUserEmail] = useState<string | undefined>(undefined);
@@ -79,6 +88,9 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
   const criticalErrors = errors.filter(error => error.critical);
   const warnings = errors.filter(error => !error.critical);
 
+  const displayIsAuthed = typeof isAuthenticated === 'boolean' ? isAuthenticated : isSignedIn;
+  const displayEmail = user?.email ?? userEmail;
+
   return (
     <div className="min-h-screen bg-gray-50 w-full overflow-auto">
       {/* Top navbar */}
@@ -89,16 +101,20 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
             <div className="font-semibold text-gray-900">Aussie Vault Browser</div>
           </div>
           <div className="flex items-center gap-3">
-            {isSignedIn ? (
+            {displayIsAuthed ? (
               <>
-                <span className="text-sm font-medium text-gray-800">{userEmail || '—'}</span>
+                <span className="text-sm font-medium text-gray-800">{displayEmail || '—'}</span>
                 <span className="text-xs px-2 py-1 rounded bg-green-100 text-green-700 border border-green-200">Authenticated</span>
                 <Button
                   variant="outline"
                   className="h-8 px-3"
                   onClick={async () => {
-                    try { await clerkAuth.signOut(); } catch {}
-                    window.location.reload();
+                    if (onLogout) {
+                      onLogout();
+                    } else {
+                      try { await clerkAuth.signOut(); } catch {}
+                      window.location.reload();
+                    }
                   }}
                 >
                   Logout
@@ -107,7 +123,9 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
             ) : (
               <>
                 <span className="text-xs px-2 py-1 rounded bg-red-100 text-red-700 border border-red-200">Not authenticated</span>
-                <Button className="h-8 px-3" onClick={() => clerkAuth.signIn().catch(() => {})}>Login</Button>
+                <Button className="h-8 px-3" onClick={() => {
+                  if (onLogin) { onLogin(); } else { clerkAuth.signIn().catch(() => {}); }
+                }}>Login</Button>
               </>
             )}
           </div>

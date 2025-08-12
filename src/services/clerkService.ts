@@ -213,15 +213,27 @@ class ClerkAuthService {
       ClerkAuthService.globalAuthState = clearedState;
       ClerkAuthService.persistAuthState(clearedState);
       
-             // 🔐 RESET GLOBAL INITIALIZATION: Allow re-initialization after sign out
-       ClerkAuthService.isGloballyInitialized = false;
-       ClerkAuthService.globalInitPromise = null;
+      // 🔐 RESET GLOBAL INITIALIZATION: Allow re-initialization after sign out
+      ClerkAuthService.isGloballyInitialized = false;
+      ClerkAuthService.globalInitPromise = null;
 
       // console.log('✅ User signed out successfully');
     } catch (error) {
       // console.error('❌ Sign out failed:', error);
       throw error;
     }
+  }
+
+  // Optional helper to clear local state without calling network
+  forceLocalSignOut(): void {
+    const clearedState = { user: null, isLoaded: true, isSignedIn: false };
+    ClerkAuthService.globalAuthState = clearedState as any;
+    ClerkAuthService.persistAuthState(clearedState as any);
+    ClerkAuthService.isGloballyInitialized = false;
+    ClerkAuthService.globalInitPromise = null;
+    this.authStateCallbacks.forEach(cb => {
+      try { cb(clearedState as any); } catch {}
+    });
   }
 
   // 🔐 ENHANCED METHOD: Force authentication state refresh for new windows

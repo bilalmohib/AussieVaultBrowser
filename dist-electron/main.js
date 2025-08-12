@@ -3636,9 +3636,6 @@ const updateVPNStatus = (connected) => {
       console.log("💡 Connect to Australian VPN server to enable browsing");
     }
   }
-  console.log(
-    `📡 🇦🇺 VPN Status: ${connected ? "✅ AUSTRALIAN VPN CONNECTED - All HTTPS requests allowed" : "❌ NO AUSTRALIAN VPN - All external requests BLOCKED"}`
-  );
   windows.forEach((window2) => {
     if (window2 && !window2.isDestroyed()) {
       window2.webContents.send("vpn-status-changed", connected);
@@ -3749,12 +3746,8 @@ const checkWireGuardConnection = async () => {
   try {
     const isAustralian = await checkCurrentIP();
     if (isAustralian) {
-      console.log("✅ IP geolocation check PASSED - Australian VPN confirmed");
       return true;
     } else {
-      console.log(
-        "❌ IP geolocation check FAILED - Not connected to Australian VPN"
-      );
       return false;
     }
   } catch (error) {
@@ -3763,9 +3756,6 @@ const checkWireGuardConnection = async () => {
   }
 };
 const checkCurrentIP = async () => {
-  console.log(
-    "🔍 🇦🇺 AUSTRALIAN IP DETECTION: Starting bulletproof IP detection with multiple APIs..."
-  );
   const apis = [
     "https://ipinfo.io/json",
     "https://ipapi.co/json",
@@ -3938,7 +3928,6 @@ const configureSecureSession = () => {
   const sharedAuthSession = session.fromPartition("persist:shared-auth");
   applySecurity(sharedAuthSession);
   const webviewSession = session.fromPartition("persist:webview");
-  console.log("🍪 Configuring persistent cookies for webview session...");
   try {
     webviewSession.webRequest.onBeforeRequest(null);
     webviewSession.webRequest.onBeforeSendHeaders(null);
@@ -3969,9 +3958,6 @@ const configureSecureSession = () => {
         "cachestorage"
       ]
     }).then(() => {
-      console.log(
-        "🧹 Webview session temporary storage cleared (cookies preserved)"
-      );
     });
   } catch (e) {
     console.log("🔧 Storage clear attempt:", (e == null ? void 0 : e.message) || "Unknown error");
@@ -3987,22 +3973,7 @@ const configureSecureSession = () => {
       return;
     }
     if (url.includes("ipinfo.io") || url.includes("ipapi.co") || url.includes("api.ipify.org") || url.includes("checkip.amazonaws.com") || url.includes("icanhazip.com") || url.includes("httpbin.org/ip") || url.includes("myexternalip.com") || url.includes("ipify.org") || url.includes("whatismyipaddress.com") || url.includes("ip-api.com") || url.includes("geoip-db.com") || url.includes("freegeoip.app") || url.includes("extreme-ip-lookup.com")) {
-      console.log(
-        "✅ 🔍 SHARED AUTH: ALLOWING IP geolocation request (NEVER BLOCKED):",
-        details.url
-      );
       callback({ cancel: false });
-      return;
-    }
-    if (!vpnConnected && url.startsWith("https://")) {
-      console.log(
-        "🚫 🇦🇺 SHARED AUTH: BLOCKING external request - Australian VPN required:",
-        details.url
-      );
-      console.log(
-        "⚠️  Connect to Australian VPN server to access external websites"
-      );
-      callback({ cancel: true });
       return;
     }
     if (url.includes("clerk.dev") || url.includes("clerk.com") || url.includes("clerk.accounts.dev")) {
@@ -4064,17 +4035,6 @@ const configureSecureSession = () => {
       callback({ cancel: false });
       return;
     }
-    if (!vpnConnected && url.startsWith("https://")) {
-      console.log(
-        "🚫 🇦🇺 WEBVIEW: BLOCKING external request - Australian VPN required:",
-        details.url
-      );
-      console.log(
-        "⚠️  Connect to Australian VPN server to access external websites"
-      );
-      callback({ cancel: true });
-      return;
-    }
     if (url.includes("google.com") || url.includes("microsoft.com") || url.includes("clerk") || url.includes("oauth")) {
       console.log(
         "🌐 🇦🇺 WEBVIEW AUTH: Allowing critical auth request via Australian VPN:",
@@ -4083,11 +4043,6 @@ const configureSecureSession = () => {
     }
     if (url.startsWith("https://")) {
       callback({ cancel: false });
-      return;
-    }
-    if (url.startsWith("http://")) {
-      console.log("🚫 WEBVIEW: BLOCKING insecure HTTP request:", details.url);
-      callback({ cancel: true });
       return;
     }
     console.log("🚫 WEBVIEW: BLOCKING unknown protocol request:", details.url);
@@ -4740,24 +4695,6 @@ function createBrowserWindow(isMain = false) {
   windows.push(newWindow);
   if (isMain || !mainWindow) {
     mainWindow = newWindow;
-    setTimeout(async () => {
-      try {
-        const alreadyConnected = await checkWireGuardConnection();
-        if (alreadyConnected) {
-          updateVPNStatus(true);
-        } else if (process.env.VPN_AUTO_CONNECT === "true") {
-          const connected = await connectVPN();
-          updateVPNStatus(connected);
-          if (connected) {
-          } else {
-          }
-        } else {
-          updateVPNStatus(false);
-        }
-      } catch (error) {
-        updateVPNStatus(false);
-      }
-    }, 500);
   }
   newWindow.on("closed", () => {
     const index = windows.indexOf(newWindow);
@@ -5673,16 +5610,6 @@ app.whenReady().then(async () => {
     }
   );
   createWindow();
-  setImmediate(async () => {
-    console.log("🔌 Starting VPN connection...");
-    const connected = await connectVPN();
-    updateVPNStatus(connected);
-    if (!connected) {
-      console.log("❌ VPN connection failed - starting with restricted access");
-    } else {
-      console.log("✅ VPN connected successfully - unrestricted access enabled");
-    }
-  });
 });
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {

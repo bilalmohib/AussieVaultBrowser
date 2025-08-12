@@ -156,13 +156,7 @@ const updateVPNStatus = (connected: boolean): void => {
     }
   }
 
-  console.log(
-    `📡 🇦🇺 VPN Status: ${
-      connected
-        ? "✅ AUSTRALIAN VPN CONNECTED - All HTTPS requests allowed"
-        : "❌ NO AUSTRALIAN VPN - All external requests BLOCKED"
-    }`
-  );
+  // Minimal logging; renderer UI will reflect status
 
   // Send VPN status to all windows
   windows.forEach((window) => {
@@ -346,12 +340,10 @@ const checkWireGuardConnection = async (): Promise<boolean> => {
   try {
     const isAustralian = await checkCurrentIP();
     if (isAustralian) {
-      console.log("✅ IP geolocation check PASSED - Australian VPN confirmed");
+      // console.log('IP check passed: AU')
       return true;
     } else {
-      console.log(
-        "❌ IP geolocation check FAILED - Not connected to Australian VPN"
-      );
+      // console.log('IP check failed: not AU')
       return false;
     }
   } catch (error) {
@@ -362,9 +354,7 @@ const checkWireGuardConnection = async (): Promise<boolean> => {
 
 // Check current public IP and country using direct HTTPS requests
 const checkCurrentIP = async (): Promise<boolean> => {
-  console.log(
-    "🔍 🇦🇺 AUSTRALIAN IP DETECTION: Starting bulletproof IP detection with multiple APIs..."
-  );
+  // console.log('Starting IP detection...')
 
   // Try direct HTTPS requests first (most reliable)
   const apis = [
@@ -603,7 +593,7 @@ const configureSecureSession = (): void => {
 
   // 🍪 ENABLE PERSISTENT COOKIES: Essential for Google Sign-In and other website logins
   // This ensures users stay logged in to Gmail, YouTube, etc.
-  console.log("🍪 Configuring persistent cookies for webview session...");
+  // Minimal logs during startup to avoid noise before login
 
   // NUCLEAR OPTION: Completely disable all webRequest blocking for webview session
   try {
@@ -646,9 +636,7 @@ const configureSecureSession = (): void => {
         ],
       })
       .then(() => {
-        console.log(
-          "🧹 Webview session temporary storage cleared (cookies preserved)"
-        );
+        // Minimal log
       });
   } catch (e: any) {
     console.log("🔧 Storage clear attempt:", e?.message || "Unknown error");
@@ -679,7 +667,7 @@ const configureSecureSession = (): void => {
       return;
     }
 
-    // � CRITICAL: Always allow IP geolocation requests (needed to verify Australian VPN)
+    // Allow IP geolocation requests (post-auth checks will use this)
     if (
       url.includes("ipinfo.io") ||
       url.includes("ipapi.co") ||
@@ -695,26 +683,12 @@ const configureSecureSession = (): void => {
       url.includes("freegeoip.app") ||
       url.includes("extreme-ip-lookup.com")
     ) {
-      console.log(
-        "✅ 🔍 SHARED AUTH: ALLOWING IP geolocation request (NEVER BLOCKED):",
-        details.url
-      );
+      // no-op log
       callback({ cancel: false });
       return;
     }
 
-    // �🚨 STRICT SECURITY: Block OTHER external requests if VPN not connected to Australia
-    if (!vpnConnected && url.startsWith("https://")) {
-      console.log(
-        "🚫 🇦🇺 SHARED AUTH: BLOCKING external request - Australian VPN required:",
-        details.url
-      );
-      console.log(
-        "⚠️  Connect to Australian VPN server to access external websites"
-      );
-      callback({ cancel: true });
-      return;
-    }
+    // Removed blocking: allow all external requests regardless of VPN status
 
     // Allow Clerk authentication domains when VPN is connected
     if (
@@ -824,18 +798,7 @@ const configureSecureSession = (): void => {
       return;
     }
 
-    // �🚨 STRICT SECURITY: Block OTHER external requests if VPN not connected to Australia
-    if (!vpnConnected && url.startsWith("https://")) {
-      console.log(
-        "🚫 🇦🇺 WEBVIEW: BLOCKING external request - Australian VPN required:",
-        details.url
-      );
-      console.log(
-        "⚠️  Connect to Australian VPN server to access external websites"
-      );
-      callback({ cancel: true });
-      return;
-    }
+    // Removed blocking: allow all external requests regardless of VPN status
 
     // Log for debugging authentication issues when VPN is connected
     if (
@@ -857,12 +820,7 @@ const configureSecureSession = (): void => {
       return;
     }
 
-    // Block HTTP requests
-    if (url.startsWith("http://")) {
-      console.log("🚫 WEBVIEW: BLOCKING insecure HTTP request:", details.url);
-      callback({ cancel: true });
-      return;
-    }
+
 
     // Block everything else
     console.log("🚫 WEBVIEW: BLOCKING unknown protocol request:", details.url);
@@ -1786,33 +1744,7 @@ function createBrowserWindow(isMain: boolean = false): BrowserWindow {
   if (isMain || !mainWindow) {
     mainWindow = newWindow;
 
-    // Initialize VPN status check only for main window
-    setTimeout(async () => {
-      try {
-        // First check if VPN is already connected
-        const alreadyConnected = await checkWireGuardConnection();
-
-        if (alreadyConnected) {
-          // console.log('✅ VPN is already connected during app initialization');
-          updateVPNStatus(true);
-        } else if (process.env.VPN_AUTO_CONNECT === "true") {
-          // console.log('🔄 VPN not connected, attempting auto-connect...');
-          const connected = await connectVPN();
-          updateVPNStatus(connected);
-          if (connected) {
-            // console.log('✅ VPN auto-connected successfully');
-          } else {
-            // console.warn('⚠️ VPN auto-connect failed');
-          }
-        } else {
-          // console.log('⚠️ VPN not connected and auto-connect disabled');
-          updateVPNStatus(false);
-        }
-      } catch (error) {
-        // console.error('❌ VPN initialization error:', error);
-        updateVPNStatus(false);
-      }
-    }, 500); // Reduced delay to fix race condition
+  // Defer any VPN status checking until after renderer requests it (post-auth)
 
     // Note: Removed periodic Australian VPN verification to avoid repeated checks.
     // VPN status is verified once at startup above, and can be checked on-demand.
@@ -2999,17 +2931,8 @@ app.whenReady().then(async () => {
   // Create the window immediately for faster perceived startup
   createWindow();
 
-  // Start VPN connection in background to avoid blocking UI
-  setImmediate(async () => {
-    console.log("🔌 Starting VPN connection...");
-    const connected = await connectVPN();
-    updateVPNStatus(connected);
-    if (!connected) {
-      console.log("❌ VPN connection failed - starting with restricted access");
-    } else {
-      console.log("✅ VPN connected successfully - unrestricted access enabled");
-    }
-  });
+  // Defer VPN connection until after authentication is confirmed by renderer
+  // The renderer will explicitly request VPN via ipc: "vpn-connect" once signed in
 });
 
 // Remove global shortcuts - they cause duplicates with before-input-event

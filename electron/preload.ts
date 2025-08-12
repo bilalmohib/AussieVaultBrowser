@@ -94,7 +94,6 @@ contextBridge.exposeInMainWorld("secureBrowser", {
     connect: (provider: string) => ipcRenderer.invoke("vpn-connect", provider),
     disconnect: () => ipcRenderer.invoke("vpn-disconnect"),
     checkIP: () => ipcRenderer.invoke("vpn-check-ip"),
-    startPostAuth: () => ipcRenderer.invoke("vpn-start-post-auth"),
     onStatusChange: (callback: (status: string) => void) => {
       ipcRenderer.on("vpn-status-changed", (_: any, status: any) =>
         callback(status)
@@ -103,13 +102,6 @@ contextBridge.exposeInMainWorld("secureBrowser", {
     removeStatusListener: () => {
       ipcRenderer.removeAllListeners("vpn-status-changed");
     },
-  },
-
-  // Authentication Operations
-  auth: {
-    setState: (authenticated: boolean) =>
-      ipcRenderer.invoke("auth-set-state", authenticated),
-    getState: () => ipcRenderer.invoke("auth-get-state"),
   },
 
   // Vault Operations
@@ -272,17 +264,8 @@ export interface SecureBrowserAPI {
     getStatus: () => Promise<string>;
     connect: (provider: string) => Promise<boolean>;
     disconnect: () => Promise<boolean>;
-    startPostAuth: () => Promise<{
-      success: boolean;
-      connected: boolean;
-      message: string;
-    }>;
     onStatusChange: (callback: (status: string) => void) => void;
     removeStatusListener: () => void;
-  };
-  auth: {
-    setState: (authenticated: boolean) => Promise<boolean>;
-    getState: () => Promise<{ authenticated: boolean; complete: boolean }>;
   };
   vault: {
     getSharePointCredentials: () => Promise<{

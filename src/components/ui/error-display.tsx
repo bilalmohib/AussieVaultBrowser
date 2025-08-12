@@ -1,21 +1,11 @@
-import React from "react";
-import {
-  AlertTriangle,
-  Wifi,
-  WifiOff,
-  Settings,
-  CheckCircle,
-  XCircle,
-  Info,
-  User,
-  LogOut,
-} from "lucide-react";
-import { Alert, AlertDescription, AlertTitle } from "./alert";
-import { Button } from "./button";
-import { Card, CardContent, CardHeader, CardTitle } from "./card";
+import React from 'react';
+import { AlertTriangle, Wifi, WifiOff, Settings, CheckCircle, XCircle, Info } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from './alert';
+import { Button } from './button';
+import { Card, CardContent, CardHeader, CardTitle } from './card';
 
 export interface ErrorInfo {
-  type: "environment" | "vpn" | "network" | "config";
+  type: 'environment' | 'vpn' | 'network' | 'config';
   title: string;
   message: string;
   details?: string[];
@@ -44,127 +34,26 @@ export interface EnvironmentStatus {
   };
 }
 
-export interface UserInfo {
-  name?: string;
-  email?: string;
-  accessLevel?: number;
-  avatar?: string;
-}
-
 interface ErrorDisplayProps {
   errors: ErrorInfo[];
   vpnStatus?: VPNStatus;
   environmentStatus?: EnvironmentStatus;
-  user?: UserInfo;
-  isAuthenticated?: boolean;
   onRetry?: () => void;
   onOpenSettings?: () => void;
-  onLogin?: () => void;
-  onLogout?: () => void;
 }
 
 export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
   errors,
   vpnStatus,
   environmentStatus,
-  user,
-  isAuthenticated,
   onRetry,
-  onOpenSettings,
-  onLogin,
-  onLogout,
+  onOpenSettings
 }) => {
-  const criticalErrors = errors.filter((error) => error.critical);
-  const warnings = errors.filter((error) => !error.critical);
+  const criticalErrors = errors.filter(error => error.critical);
+  const warnings = errors.filter(error => !error.critical);
 
   return (
     <div className="min-h-screen bg-gray-50 w-full overflow-auto">
-      {/* Top Navigation Bar with User Info */}
-      <div className="w-full bg-white border-b border-gray-200 px-4 py-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <h2 className="text-lg font-semibold text-gray-900">
-              Aussie Vault Browser
-            </h2>
-            {isAuthenticated && (
-              <div className="flex items-center gap-2 px-3 py-1 bg-green-100 rounded-full">
-                <CheckCircle className="h-4 w-4 text-green-600" />
-                <span className="text-sm text-green-700 font-medium">
-                  Authenticated
-                </span>
-              </div>
-            )}
-          </div>
-
-          <div className="flex items-center gap-3">
-            {isAuthenticated && user ? (
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2">
-                  {user.avatar ? (
-                    <img
-                      src={user.avatar}
-                      alt={user.name || user.email || "User"}
-                      className="h-8 w-8 rounded-full"
-                    />
-                  ) : (
-                    <div className="h-8 w-8 bg-blue-500 rounded-full flex items-center justify-center">
-                      <User className="h-4 w-4 text-white" />
-                    </div>
-                  )}
-                  <div className="text-sm">
-                    <div className="font-medium text-gray-900">
-                      {user.name || user.email}
-                    </div>
-                    {user.name && user.email && (
-                      <div className="text-gray-500">{user.email}</div>
-                    )}
-                    {user.accessLevel && (
-                      <div className="text-xs text-blue-600">
-                        Level {user.accessLevel}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                {onLogout && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      console.log("🔐 Logout button clicked in ErrorDisplay");
-                      onLogout();
-                    }}
-                    className="flex items-center gap-2"
-                  >
-                    <LogOut className="h-4 w-4" />
-                    Logout
-                  </Button>
-                )}
-              </div>
-            ) : (
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2 px-3 py-1 bg-red-100 rounded-full">
-                  <XCircle className="h-4 w-4 text-red-600" />
-                  <span className="text-sm text-red-700 font-medium">
-                    Not Authenticated
-                  </span>
-                </div>
-                {onLogin && (
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={onLogin}
-                    className="flex items-center gap-2"
-                  >
-                    <User className="h-4 w-4" />
-                    Login
-                  </Button>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
       <div className="w-full p-4 space-y-6">
         {/* Header */}
         <div className="text-center">
@@ -172,12 +61,10 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
             <AlertTriangle className="h-16 w-16 text-red-500" />
           </div>
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Configuration Issues Detected
+                          Aussie Vault Browser
           </h1>
           <p className="text-gray-600">
-            {isAuthenticated
-              ? "You are logged in, but there are configuration issues that need to be resolved."
-              : "Please log in first, then we'll check your system configuration."}
+            Configuration issues detected. Please review the details below.
           </p>
         </div>
 
@@ -199,8 +86,7 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
                     <XCircle className="h-4 w-4 text-red-500" />
                   )}
                   <span className="text-sm">
-                    Environment:{" "}
-                    {environmentStatus.loaded ? "Loaded" : "Failed to Load"}
+                    Environment: {environmentStatus.loaded ? 'Loaded' : 'Failed to Load'}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -210,44 +96,26 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
                     <XCircle className="h-4 w-4 text-red-500" />
                   )}
                   <span className="text-sm">
-                    Validation: {environmentStatus.valid ? "Passed" : "Failed"}
+                    Validation: {environmentStatus.valid ? 'Passed' : 'Failed'}
                   </span>
                 </div>
               </div>
 
               {environmentStatus.config && (
                 <div className="bg-gray-50 p-3 rounded-lg mb-4">
-                  <h4 className="font-medium text-sm mb-2">
-                    Current Configuration:
-                  </h4>
+                  <h4 className="font-medium text-sm mb-2">Current Configuration:</h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs font-mono">
-                    <div>
-                      NODE_ENV:{" "}
-                      {environmentStatus.config.nodeEnv || "undefined"}
-                    </div>
-                    <div>
-                      VPN_PROVIDER:{" "}
-                      {environmentStatus.config.vpnProvider || "undefined"}
-                    </div>
-                    <div>
-                      WIREGUARD_ENDPOINT:{" "}
-                      {environmentStatus.config.wireguardEndpoint ||
-                        "undefined"}
-                    </div>
-                    <div>
-                      CONFIG_PATH:{" "}
-                      {environmentStatus.config.wireguardConfigPath ||
-                        "undefined"}
-                    </div>
+                    <div>NODE_ENV: {environmentStatus.config.nodeEnv || 'undefined'}</div>
+                    <div>VPN_PROVIDER: {environmentStatus.config.vpnProvider || 'undefined'}</div>
+                    <div>WIREGUARD_ENDPOINT: {environmentStatus.config.wireguardEndpoint || 'undefined'}</div>
+                    <div>CONFIG_PATH: {environmentStatus.config.wireguardConfigPath || 'undefined'}</div>
                   </div>
                 </div>
               )}
 
               {environmentStatus.errors.length > 0 && (
                 <div className="mb-4">
-                  <h4 className="font-medium text-sm text-red-700 mb-2">
-                    Errors:
-                  </h4>
+                  <h4 className="font-medium text-sm text-red-700 mb-2">Errors:</h4>
                   <ul className="list-disc list-inside text-sm text-red-600 space-y-1">
                     {environmentStatus.errors.map((error, index) => (
                       <li key={index}>{error}</li>
@@ -258,9 +126,7 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
 
               {environmentStatus.warnings.length > 0 && (
                 <div>
-                  <h4 className="font-medium text-sm text-yellow-700 mb-2">
-                    Warnings:
-                  </h4>
+                  <h4 className="font-medium text-sm text-yellow-700 mb-2">Warnings:</h4>
                   <ul className="list-disc list-inside text-sm text-yellow-600 space-y-1">
                     {environmentStatus.warnings.map((warning, index) => (
                       <li key={index}>{warning}</li>
@@ -274,11 +140,7 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
 
         {/* VPN Status */}
         {vpnStatus && (
-          <Card
-            className={
-              vpnStatus.connected ? "border-green-200" : "border-red-200"
-            }
-          >
+          <Card className={vpnStatus.connected ? "border-green-200" : "border-red-200"}>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 {vpnStatus.connected ? (
@@ -293,12 +155,8 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <div className="text-sm text-gray-600">Status</div>
-                  <div
-                    className={`font-medium ${
-                      vpnStatus.connected ? "text-green-600" : "text-red-600"
-                    }`}
-                  >
-                    {vpnStatus.connected ? "Connected" : "Disconnected"}
+                  <div className={`font-medium ${vpnStatus.connected ? 'text-green-600' : 'text-red-600'}`}>
+                    {vpnStatus.connected ? 'Connected' : 'Disconnected'}
                   </div>
                 </div>
                 {vpnStatus.provider && (
@@ -310,9 +168,7 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
                 {vpnStatus.endpoint && (
                   <div>
                     <div className="text-sm text-gray-600">Endpoint</div>
-                    <div className="font-medium font-mono text-sm">
-                      {vpnStatus.endpoint}
-                    </div>
+                    <div className="font-medium font-mono text-sm">{vpnStatus.endpoint}</div>
                   </div>
                 )}
                 {vpnStatus.location && (
@@ -348,16 +204,12 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
                     {error.details && error.details.length > 0 && (
                       <ul className="list-disc list-inside mt-2 space-y-1">
                         {error.details.map((detail, detailIndex) => (
-                          <li key={detailIndex} className="text-sm">
-                            {detail}
-                          </li>
+                          <li key={detailIndex} className="text-sm">{detail}</li>
                         ))}
                       </ul>
                     )}
                     {error.action && (
-                      <p className="mt-2 font-medium">
-                        Action needed: {error.action}
-                      </p>
+                      <p className="mt-2 font-medium">Action needed: {error.action}</p>
                     )}
                   </div>
                 </AlertDescription>
@@ -374,11 +226,7 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
               Warnings
             </h2>
             {warnings.map((warning, index) => (
-              <Alert
-                key={index}
-                variant="default"
-                className="border-yellow-200"
-              >
+              <Alert key={index} variant="default" className="border-yellow-200">
                 <Info className="h-4 w-4" />
                 <AlertTitle>{warning.title}</AlertTitle>
                 <AlertDescription>
@@ -387,9 +235,7 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
                     {warning.details && warning.details.length > 0 && (
                       <ul className="list-disc list-inside mt-2 space-y-1">
                         {warning.details.map((detail, detailIndex) => (
-                          <li key={detailIndex} className="text-sm">
-                            {detail}
-                          </li>
+                          <li key={detailIndex} className="text-sm">{detail}</li>
                         ))}
                       </ul>
                     )}
@@ -409,11 +255,7 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
             </Button>
           )}
           {onOpenSettings && (
-            <Button
-              variant="outline"
-              onClick={onOpenSettings}
-              className="flex items-center gap-2"
-            >
+            <Button variant="outline" onClick={onOpenSettings} className="flex items-center gap-2">
               <Settings className="h-4 w-4" />
               Open Settings
             </Button>
@@ -427,20 +269,14 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
           </CardHeader>
           <CardContent>
             <div className="text-blue-800 space-y-2">
-              <p>
-                <strong>For WireGuard issues:</strong>
-              </p>
+              <p><strong>For WireGuard issues:</strong></p>
               <ul className="list-disc list-inside ml-4 space-y-1 text-sm">
                 <li>Ensure WireGuard GUI is installed and running</li>
                 <li>Import your config file and activate the tunnel</li>
-                <li>
-                  Verify your server endpoint is correct: 134.199.169.102:59926
-                </li>
+                <li>Verify your server endpoint is correct: 134.199.169.102:59926</li>
                 <li>Check your internet connection</li>
               </ul>
-              <p className="mt-3">
-                <strong>For environment issues:</strong>
-              </p>
+              <p className="mt-3"><strong>For environment issues:</strong></p>
               <ul className="list-disc list-inside ml-4 space-y-1 text-sm">
                 <li>Ensure .env file exists in the project root</li>
                 <li>Set NODE_ENV=development (not production)</li>
@@ -454,4 +290,4 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
   );
 };
 
-export default ErrorDisplay;
+export default ErrorDisplay; 

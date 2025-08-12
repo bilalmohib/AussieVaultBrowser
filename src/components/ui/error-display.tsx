@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { AlertTriangle, Wifi, WifiOff, Settings, CheckCircle, XCircle, Info } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from './alert';
 import { Button } from './button';
 import { Card, CardContent, CardHeader, CardTitle } from './card';
+import clerkAuth from '@/services/clerkService';
 
 export interface ErrorInfo {
   type: 'environment' | 'vpn' | 'network' | 'config';
@@ -49,11 +50,69 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
   onRetry,
   onOpenSettings
 }) => {
+  const [isSignedIn, setIsSignedIn] = useState<boolean>(false);
+  const [userEmail, setUserEmail] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    // Initialize clerk and subscribe to auth state
+    const init = async () => {
+      try {
+        await clerkAuth.initialize();
+        const state = await clerkAuth.refreshAuthenticationState();
+        setIsSignedIn(state.isSignedIn);
+        setUserEmail(state.user?.emailAddresses?.[0]?.emailAddress);
+      } catch {
+        setIsSignedIn(false);
+        setUserEmail(undefined);
+      }
+    };
+    init();
+
+    const onChange = (state: any) => {
+      setIsSignedIn(state.isSignedIn);
+      setUserEmail(state.user?.emailAddresses?.[0]?.emailAddress);
+    };
+    clerkAuth.onAuthStateChange(onChange);
+    return () => clerkAuth.removeAuthStateListener(onChange);
+  }, []);
+
   const criticalErrors = errors.filter(error => error.critical);
   const warnings = errors.filter(error => !error.critical);
 
   return (
     <div className="min-h-screen bg-gray-50 w-full overflow-auto">
+      {/* Top navbar */}
+      <div className="w-full border-b border-gray-200 bg-white/90 backdrop-blur sticky top-0 z-10">
+        <div className="max-w-6xl mx-auto px-4 h-12 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <img src="/assets/aussie-browser-logo-32.png" alt="Aussie Vault Browser" className="h-7 w-7 rounded-md" />
+            <div className="font-semibold text-gray-900">Aussie Vault Browser</div>
+          </div>
+          <div className="flex items-center gap-3">
+            {isSignedIn ? (
+              <>
+                <span className="text-sm font-medium text-gray-800">{userEmail || '—'}</span>
+                <span className="text-xs px-2 py-1 rounded bg-green-100 text-green-700 border border-green-200">Authenticated</span>
+                <Button
+                  variant="outline"
+                  className="h-8 px-3"
+                  onClick={async () => {
+                    try { await clerkAuth.signOut(); } catch {}
+                    window.location.reload();
+                  }}
+                >
+                  Logout
+                </Button>
+              </>
+            ) : (
+              <>
+                <span className="text-xs px-2 py-1 rounded bg-red-100 text-red-700 border border-red-200">Not authenticated</span>
+                <Button className="h-8 px-3" onClick={() => clerkAuth.signIn().catch(() => {})}>Login</Button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
       <div className="w-full p-4 space-y-6">
         {/* Header */}
         <div className="text-center">

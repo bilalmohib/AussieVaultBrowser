@@ -14,6 +14,7 @@ import Url from "url";
 import require$$0$2 from "punycode";
 import https from "https";
 import zlib from "zlib";
+import crypto from "crypto";
 const detectPlatform = () => {
   if (typeof window !== "undefined") {
     const userAgent = navigator.userAgent.toLowerCase();
@@ -3564,6 +3565,17 @@ fetch.isRedirect = function(code) {
   return code === 301 || code === 302 || code === 303 || code === 307 || code === 308;
 };
 fetch.Promise = global.Promise;
+function base64URLEncode(str) {
+  return str.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+}
+function sha256(buffer) {
+  return crypto.createHash("sha256").update(buffer).digest();
+}
+function generatePKCECodes() {
+  const codeVerifier = base64URLEncode(crypto.randomBytes(32));
+  const codeChallenge = base64URLEncode(sha256(codeVerifier));
+  return { codeVerifier, codeChallenge };
+}
 const VPN_CHECK_TIMEOUT = 3e4;
 const PROCESS_TIMEOUT = 3e4;
 const IP_GEOLOCATION_API = "https://ipinfo.io/json";
@@ -3757,52 +3769,63 @@ const checkCurrentIP = async () => {
   const apis = [
     "https://ipinfo.io/json",
     "https://ipapi.co/json",
-    "https://ip-api.com/json",
-    "https://freegeoip.app/json/",
-    "https://extreme-ip-lookup.com/json/"
+    "https://ip-api.com/json"
   ];
-  for (const api of apis) {
-    try {
-      const response = await fetch(api, {
-        signal: AbortSignal.timeout(8e3),
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-      });
-      if (!response.ok) continue;
-      const data = await response.json();
-      const ip = data.ip || data.query || "";
-      const country = data.country || data.country_name || data.countryCode || "";
-      const region = data.region || data.regionName || "";
-      const city = data.city || "";
-      if (country) {
-        console.log(`🔍 Current public IP: ${ip}`);
-        console.log(`🔍 Location: ${city}, ${region}, ${country}`);
-        const isAustralianIP = isAustralianCountry(country);
-        if (isAustralianIP) {
-          console.log("🇦🇺 ✅ VERIFIED: Connected via Australian VPN!");
-          console.log(`📍 Australian location confirmed: ${city}, ${region}`);
-          return true;
-        } else {
-          console.log(
-            "🚨 ❌ SECURITY VIOLATION: Not connected to Australian VPN!"
-          );
-          console.log(`🚫 Current location: ${country} - BROWSING BLOCKED`);
-          console.log(
-            "⚠️  Please connect to Australian VPN server to continue"
-          );
-          return false;
-        }
+  const promiseAny = (promises2) => {
+    return new Promise((resolve, reject) => {
+      let rejectedCount = 0;
+      const total = promises2.length;
+      if (total === 0) {
+        reject(new Error("No promises provided"));
+        return;
       }
-    } catch (error) {
-      console.log(`🔍 API ${api} failed, trying next...`);
-      continue;
+      promises2.forEach((p) => {
+        p.then(resolve).catch(() => {
+          rejectedCount += 1;
+          if (rejectedCount === total) {
+            reject(new Error("All IP APIs failed"));
+          }
+        });
+      });
+    });
+  };
+  try {
+    const result = await promiseAny(
+      apis.map(async (api) => {
+        const response = await fetch(api, {
+          signal: AbortSignal.timeout(3e3),
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+          }
+        });
+        if (!response.ok) throw new Error("bad response");
+        const data = await response.json();
+        const ip2 = data.ip || data.query || "";
+        const country2 = data.country || data.country_name || data.countryCode || "";
+        const region2 = data.region || data.regionName || "";
+        const city2 = data.city || "";
+        return { ip: ip2, country: country2, region: region2, city: city2 };
+      })
+    );
+    const { ip, country, region, city } = result;
+    console.log(`🔍 Current public IP: ${ip}`);
+    console.log(`🔍 Location: ${city}, ${region}, ${country}`);
+    const isAustralianIP = isAustralianCountry(country);
+    if (isAustralianIP) {
+      console.log("🇦🇺 ✅ VERIFIED: Connected via Australian VPN!");
+      console.log(`📍 Australian location confirmed: ${city}, ${region}`);
+      return true;
     }
+    console.log("🚨 ❌ SECURITY VIOLATION: Not connected to Australian VPN!");
+    console.log(`🚫 Current location: ${country} - BROWSING BLOCKED`);
+    console.log("⚠️  Please connect to Australian VPN server to continue");
+    return false;
+  } catch {
   }
   console.log("🔄 PowerShell command failed, trying simpler IP check...");
   try {
     const fallbackResponse = await fetch("https://api.ipify.org?format=json", {
-      signal: AbortSignal.timeout(5e3)
+      signal: AbortSignal.timeout(2e3)
     });
     if (fallbackResponse.ok) {
       const data = await fallbackResponse.json();
@@ -3886,15 +3909,13 @@ const configureSecureSession = () => {
     "Permissions-Policy": "geolocation=(), microphone=(), camera=(), payment=(), usb=()"
   };
   const applySecurity = (sessionInstance) => {
-    sessionInstance.webRequest.onHeadersReceived(
-      (details, callback) => {
-        const responseHeaders = details.responseHeaders || {};
-        Object.entries(securityHeaders).forEach(([header, value]) => {
-          responseHeaders[header] = [value];
-        });
-        callback({ responseHeaders });
-      }
-    );
+    sessionInstance.webRequest.onHeadersReceived((details, callback) => {
+      const responseHeaders = details.responseHeaders || {};
+      Object.entries(securityHeaders).forEach(([header, value]) => {
+        responseHeaders[header] = [value];
+      });
+      callback({ responseHeaders });
+    });
     sessionInstance.setPermissionRequestHandler(
       (_webContents, permission, callback) => {
         const allowedPermissions = [
@@ -3905,16 +3926,14 @@ const configureSecureSession = () => {
         callback(allowedPermissions.includes(permission));
       }
     );
-    sessionInstance.webRequest.onBeforeRequest(
-      (details, callback) => {
-        const url = details.url.toLowerCase();
-        if (url.startsWith("http://") && !url.includes("localhost") && !url.includes("127.0.0.1")) {
-          callback({ cancel: true });
-          return;
-        }
-        callback({ cancel: false });
+    sessionInstance.webRequest.onBeforeRequest((details, callback) => {
+      const url = details.url.toLowerCase();
+      if (url.startsWith("http://") && !url.includes("localhost") && !url.includes("127.0.0.1")) {
+        callback({ cancel: true });
+        return;
       }
-    );
+      callback({ cancel: false });
+    });
   };
   const sharedAuthSession = session.fromPartition("persist:shared-auth");
   applySecurity(sharedAuthSession);
@@ -3957,84 +3976,80 @@ const configureSecureSession = () => {
   } catch (e) {
     console.log("🔧 Storage clear attempt:", (e == null ? void 0 : e.message) || "Unknown error");
   }
-  sharedAuthSession.webRequest.onBeforeRequest(
-    (details, callback) => {
-      const url = details.url.toLowerCase();
-      if (url.startsWith("chrome-extension://") || url.startsWith("moz-extension://") || url.startsWith("extension://")) {
-        callback({ cancel: false });
-        return;
-      }
-      if (url.includes("localhost") || url.includes("127.0.0.1") || url.startsWith("file://") || url.startsWith("data:")) {
-        callback({ cancel: false });
-        return;
-      }
-      if (url.includes("ipinfo.io") || url.includes("ipapi.co") || url.includes("api.ipify.org") || url.includes("checkip.amazonaws.com") || url.includes("icanhazip.com") || url.includes("httpbin.org/ip") || url.includes("myexternalip.com") || url.includes("ipify.org") || url.includes("whatismyipaddress.com") || url.includes("ip-api.com") || url.includes("geoip-db.com") || url.includes("freegeoip.app") || url.includes("extreme-ip-lookup.com")) {
-        console.log(
-          "✅ 🔍 SHARED AUTH: ALLOWING IP geolocation request (NEVER BLOCKED):",
-          details.url
-        );
-        callback({ cancel: false });
-        return;
-      }
-      if (!vpnConnected && url.startsWith("https://")) {
-        console.log(
-          "🚫 🇦🇺 SHARED AUTH: BLOCKING external request - Australian VPN required:",
-          details.url
-        );
-        console.log(
-          "⚠️  Connect to Australian VPN server to access external websites"
-        );
-        callback({ cancel: true });
-        return;
-      }
-      if (url.includes("clerk.dev") || url.includes("clerk.com") || url.includes("clerk.accounts.dev")) {
-        console.log(
-          "✅ 🇦🇺 SHARED AUTH: Allowing Clerk auth request via Australian VPN:",
-          details.url
-        );
-        callback({ cancel: false });
-        return;
-      }
-      if (url.startsWith("http://")) {
-        console.log(
-          "🚫 SHARED AUTH: BLOCKING insecure HTTP request:",
-          details.url
-        );
-        callback({ cancel: true });
-        return;
-      }
-      if (url.startsWith("https://")) {
-        console.log(
-          "✅ 🇦🇺 SHARED AUTH: Allowing HTTPS auth request via Australian VPN:",
-          details.url
-        );
-        callback({ cancel: false });
-        return;
-      }
+  sharedAuthSession.webRequest.onBeforeRequest((details, callback) => {
+    const url = details.url.toLowerCase();
+    if (url.startsWith("chrome-extension://") || url.startsWith("moz-extension://") || url.startsWith("extension://")) {
+      callback({ cancel: false });
+      return;
+    }
+    if (url.includes("localhost") || url.includes("127.0.0.1") || url.startsWith("file://") || url.startsWith("data:")) {
+      callback({ cancel: false });
+      return;
+    }
+    if (url.includes("ipinfo.io") || url.includes("ipapi.co") || url.includes("api.ipify.org") || url.includes("checkip.amazonaws.com") || url.includes("icanhazip.com") || url.includes("httpbin.org/ip") || url.includes("myexternalip.com") || url.includes("ipify.org") || url.includes("whatismyipaddress.com") || url.includes("ip-api.com") || url.includes("geoip-db.com") || url.includes("freegeoip.app") || url.includes("extreme-ip-lookup.com")) {
       console.log(
-        "🚫 SHARED AUTH: BLOCKING unknown protocol request:",
+        "✅ 🔍 SHARED AUTH: ALLOWING IP geolocation request (NEVER BLOCKED):",
+        details.url
+      );
+      callback({ cancel: false });
+      return;
+    }
+    if (!vpnConnected && url.startsWith("https://")) {
+      console.log(
+        "🚫 🇦🇺 SHARED AUTH: BLOCKING external request - Australian VPN required:",
+        details.url
+      );
+      console.log(
+        "⚠️  Connect to Australian VPN server to access external websites"
+      );
+      callback({ cancel: true });
+      return;
+    }
+    if (url.includes("clerk.dev") || url.includes("clerk.com") || url.includes("clerk.accounts.dev")) {
+      console.log(
+        "✅ 🇦🇺 SHARED AUTH: Allowing Clerk auth request via Australian VPN:",
+        details.url
+      );
+      callback({ cancel: false });
+      return;
+    }
+    if (url.startsWith("http://")) {
+      console.log(
+        "🚫 SHARED AUTH: BLOCKING insecure HTTP request:",
         details.url
       );
       callback({ cancel: true });
+      return;
     }
-  );
-  sharedAuthSession.webRequest.onBeforeSendHeaders(
-    (details, callback) => {
-      let userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
-      if (details.url.includes("accounts.google.com") || details.url.includes("googleapis.com")) {
-        userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0";
+    if (url.startsWith("https://")) {
+      console.log(
+        "✅ 🇦🇺 SHARED AUTH: Allowing HTTPS auth request via Australian VPN:",
+        details.url
+      );
+      callback({ cancel: false });
+      return;
+    }
+    console.log(
+      "🚫 SHARED AUTH: BLOCKING unknown protocol request:",
+      details.url
+    );
+    callback({ cancel: true });
+  });
+  sharedAuthSession.webRequest.onBeforeSendHeaders((details, callback) => {
+    let userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
+    if (details.url.includes("accounts.google.com") || details.url.includes("googleapis.com")) {
+      userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0";
+    }
+    callback({
+      requestHeaders: {
+        ...details.requestHeaders,
+        "User-Agent": userAgent,
+        "Sec-Fetch-Site": "cross-site",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Dest": "document"
       }
-      callback({
-        requestHeaders: {
-          ...details.requestHeaders,
-          "User-Agent": userAgent,
-          "Sec-Fetch-Site": "cross-site",
-          "Sec-Fetch-Mode": "navigate",
-          "Sec-Fetch-Dest": "document"
-        }
-      });
-    }
-  );
+    });
+  });
   webviewSession.webRequest.onBeforeRequest((details, callback) => {
     const url = details.url.toLowerCase();
     if (url.includes("localhost") || url.includes("127.0.0.1") || url.startsWith("file://") || url.startsWith("chrome-extension://") || url.startsWith("devtools://")) {
@@ -4078,31 +4093,29 @@ const configureSecureSession = () => {
     console.log("🚫 WEBVIEW: BLOCKING unknown protocol request:", details.url);
     callback({ cancel: true });
   });
-  webviewSession.webRequest.onBeforeSendHeaders(
-    (details, callback) => {
-      const url = details.url.toLowerCase();
-      let userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
-      if (url.includes("google.com") || url.includes("googleapis.com")) {
-        userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
-      } else if (url.includes("microsoft.com") || url.includes("live.com")) {
-        userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0";
-      }
-      callback({
-        requestHeaders: {
-          ...details.requestHeaders,
-          "User-Agent": userAgent,
-          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-          "Accept-Language": "en-US,en;q=0.9",
-          "Accept-Encoding": "gzip, deflate, br",
-          "Sec-Fetch-Site": "none",
-          "Sec-Fetch-Mode": "navigate",
-          "Sec-Fetch-User": "?1",
-          "Sec-Fetch-Dest": "document",
-          "Upgrade-Insecure-Requests": "1"
-        }
-      });
+  webviewSession.webRequest.onBeforeSendHeaders((details, callback) => {
+    const url = details.url.toLowerCase();
+    let userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
+    if (url.includes("google.com") || url.includes("googleapis.com")) {
+      userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
+    } else if (url.includes("microsoft.com") || url.includes("live.com")) {
+      userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0";
     }
-  );
+    callback({
+      requestHeaders: {
+        ...details.requestHeaders,
+        "User-Agent": userAgent,
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-User": "?1",
+        "Sec-Fetch-Dest": "document",
+        "Upgrade-Insecure-Requests": "1"
+      }
+    });
+  });
   webviewSession.setCertificateVerifyProc((_request, callback) => {
     callback(0);
   });
@@ -4149,17 +4162,7 @@ const configureSecureSession = () => {
       return;
     }
     const downloadId = `download_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    try {
-      if (item.pause && !(item.isPaused && item.isPaused())) {
-        item.pause();
-        console.log(
-          "⏸️ Download paused awaiting user choice:",
-          item.getFilename()
-        );
-      }
-    } catch (e) {
-      console.warn("⚠️ Could not pause download before choice:", e);
-    }
+    event.preventDefault();
     const downloadPromise = new Promise((resolve, reject) => {
       pendingDownloads.set(downloadId, { item, resolve, reject });
       setTimeout(() => {
@@ -4184,8 +4187,8 @@ const configureSecureSession = () => {
     try {
       const choice = await downloadPromise;
       await processDownloadChoice(downloadId, choice, item);
-    } catch (err) {
-      console.error("❌ Download handling error:", err);
+    } catch (error) {
+      console.error("❌ Download handling error:", error);
       await processDownloadChoice(downloadId, "local", item);
     }
   };
@@ -4210,24 +4213,6 @@ const configureSecureSession = () => {
   };
   const handleLocalDownload = async (downloadId, item) => {
     return new Promise((resolve) => {
-      try {
-        const downloadsDir = app.getPath("downloads");
-        const filename = item.getFilename && typeof item.getFilename === "function" ? item.getFilename() : `download_${Date.now()}`;
-        const targetPath = path.join(downloadsDir, filename);
-        if (item.setSavePath && typeof item.setSavePath === "function") {
-          item.setSavePath(targetPath);
-        }
-      } catch (e) {
-        console.warn("⚠️ Could not set save path for local download:", e);
-      }
-      try {
-        if (item.isPaused && item.isPaused()) {
-          item.resume();
-          console.log("▶️ Download resumed (local):", item.getFilename());
-        }
-      } catch (e) {
-        console.warn("⚠️ Could not resume download:", e);
-      }
       const downloadStartedData = {
         id: downloadId,
         filename: item.getFilename(),
@@ -4271,6 +4256,7 @@ const configureSecureSession = () => {
         });
         resolve();
       });
+      item.resume();
     });
   };
   const handleMetaStorageUpload = async (downloadId, item) => {
@@ -4575,24 +4561,22 @@ const configureSecureSession = () => {
       }
     });
   });
-  defaultSession.webRequest.onBeforeSendHeaders(
-    (details, callback) => {
-      const url = details.url.toLowerCase();
-      let userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
-      if (url.includes("accounts.google.com") || url.includes("googleapis.com")) {
-        userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0";
-      }
-      callback({
-        requestHeaders: {
-          ...details.requestHeaders,
-          "User-Agent": userAgent,
-          "Sec-Fetch-Site": "cross-site",
-          "Sec-Fetch-Mode": "navigate",
-          "Sec-Fetch-Dest": "document"
-        }
-      });
+  defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
+    const url = details.url.toLowerCase();
+    let userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
+    if (url.includes("accounts.google.com") || url.includes("googleapis.com")) {
+      userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0";
     }
-  );
+    callback({
+      requestHeaders: {
+        ...details.requestHeaders,
+        "User-Agent": userAgent,
+        "Sec-Fetch-Site": "cross-site",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Dest": "document"
+      }
+    });
+  });
   setTimeout(async () => {
     await enable1PasswordExtension();
     await enable1PasswordExtensionForSession(sharedAuthSession);
@@ -4649,7 +4633,24 @@ function createBrowserWindow(isMain = false) {
         "🌐 App OAuth popup detected, opening in external browser:",
         url
       );
-      shell.openExternal(url);
+      if (urlLower.includes("accounts.google.com") && !urlLower.includes("code_challenge")) {
+        try {
+          const { codeVerifier, codeChallenge } = generatePKCECodes();
+          global.pkceCodeVerifier = codeVerifier;
+          const authUrl = new URL(url);
+          authUrl.searchParams.append("code_challenge", codeChallenge);
+          authUrl.searchParams.append("code_challenge_method", "S256");
+          shell.openExternal(authUrl.toString());
+        } catch (error) {
+          console.log(
+            "⚠️ PKCE enhancement failed, opening original URL:",
+            error
+          );
+          shell.openExternal(url);
+        }
+      } else {
+        shell.openExternal(url);
+      }
       return { action: "deny" };
     }
     if (urlLower.startsWith("https://")) {
@@ -4729,9 +4730,6 @@ function createBrowserWindow(isMain = false) {
   });
   if (VITE_DEV_SERVER_URL) {
     newWindow.loadURL(VITE_DEV_SERVER_URL);
-    if (process.env.NODE_ENV === "development") {
-      newWindow.webContents.openDevTools();
-    }
   } else {
     newWindow.loadFile(path.join(RENDERER_DIST, "index.html"));
   }
@@ -4760,29 +4758,6 @@ function createBrowserWindow(isMain = false) {
         updateVPNStatus(false);
       }
     }, 500);
-    setInterval(async () => {
-      try {
-        console.log("🔍 🇦🇺 Performing periodic Australian VPN verification...");
-        const isStillConnected = await checkWireGuardConnection();
-        if (vpnConnected !== isStillConnected) {
-          if (isStillConnected) {
-            console.log("🇦🇺 ✅ VPN connection to Australia restored");
-          } else {
-            console.log(
-              "🚨 ❌ VPN connection to Australia lost - Blocking all external requests"
-            );
-          }
-          updateVPNStatus(isStillConnected);
-        }
-      } catch (error) {
-        console.log(
-          "🚨 ❌ Periodic VPN check failed - Assuming disconnected for security"
-        );
-        if (vpnConnected) {
-          updateVPNStatus(false);
-        }
-      }
-    }, 3e4);
   }
   newWindow.on("closed", () => {
     const index = windows.indexOf(newWindow);
@@ -4956,17 +4931,15 @@ ipcMain.handle("system-get-environment", () => {
   return JSON.stringify(envVars);
 });
 ipcMain.handle("vpn-get-status", async () => {
-  console.log("🔍 VPN status requested - running comprehensive check...");
-  try {
-    const isConnected = await checkWireGuardConnection();
-    const status = isConnected ? "connected" : "disconnected";
-    console.log(`📊 VPN status check result: ${status}`);
-    updateVPNStatus(isConnected);
-    return status;
-  } catch (error) {
-    console.log("❌ VPN status check error:", error);
-    return "disconnected";
-  }
+  const status = vpnConnected ? "connected" : "disconnected";
+  setImmediate(async () => {
+    try {
+      const verified = await checkWireGuardConnection();
+      if (verified !== vpnConnected) updateVPNStatus(verified);
+    } catch {
+    }
+  });
+  return status;
 });
 ipcMain.handle("vpn-connect", async (_event, _provider) => {
   console.log(`🌐 VPN connect requested: ${_provider}`);
@@ -5368,30 +5341,24 @@ ipcMain.handle(
   async (_event, _filename) => {
   }
 );
-ipcMain.handle(
-  "download-choose-local",
-  async (_event, downloadId) => {
-    const pendingDownload = pendingDownloads.get(downloadId);
-    if (pendingDownload) {
-      pendingDownloads.delete(downloadId);
-      pendingDownload.resolve("local");
-      return { success: true };
-    }
-    return { success: false, error: "Download not found" };
+ipcMain.handle("download-choose-local", async (_event, downloadId) => {
+  const pendingDownload = pendingDownloads.get(downloadId);
+  if (pendingDownload) {
+    pendingDownloads.delete(downloadId);
+    pendingDownload.resolve("local");
+    return { success: true };
   }
-);
-ipcMain.handle(
-  "download-choose-meta",
-  async (_event, downloadId) => {
-    const pendingDownload = pendingDownloads.get(downloadId);
-    if (pendingDownload) {
-      pendingDownloads.delete(downloadId);
-      pendingDownload.resolve("meta");
-      return { success: true };
-    }
-    return { success: false, error: "Download not found" };
+  return { success: false, error: "Download not found" };
+});
+ipcMain.handle("download-choose-meta", async (_event, downloadId) => {
+  const pendingDownload = pendingDownloads.get(downloadId);
+  if (pendingDownload) {
+    pendingDownloads.delete(downloadId);
+    pendingDownload.resolve("meta");
+    return { success: true };
   }
-);
+  return { success: false, error: "Download not found" };
+});
 ipcMain.handle("meta-storage-get-status", async () => {
   return {
     connected: false,
@@ -5399,19 +5366,16 @@ ipcMain.handle("meta-storage-get-status", async () => {
     storageQuota: null
   };
 });
-ipcMain.handle(
-  "meta-storage-connect",
-  async (_event, _accessToken) => {
-    console.log("🔗 Meta storage connection requested");
-    await new Promise((resolve) => setTimeout(resolve, 1e3));
-    return {
-      success: true,
-      accountName: "User Meta Account",
-      storageQuota: { used: 1024 * 1024 * 100, total: 1024 * 1024 * 1024 }
-      // 100MB used of 1GB
-    };
-  }
-);
+ipcMain.handle("meta-storage-connect", async (_event, _accessToken) => {
+  console.log("🔗 Meta storage connection requested");
+  await new Promise((resolve) => setTimeout(resolve, 1e3));
+  return {
+    success: true,
+    accountName: "User Meta Account",
+    storageQuota: { used: 1024 * 1024 * 100, total: 1024 * 1024 * 1024 }
+    // 100MB used of 1GB
+  };
+});
 ipcMain.handle("meta-storage-disconnect", async () => {
   console.log("🔌 Meta storage disconnected");
   return { success: true };
@@ -5529,12 +5493,9 @@ ipcMain.handle("sharepoint-get-config", async () => {
     libraryPath: "/sites/documents/Shared Documents"
   };
 });
-ipcMain.handle(
-  "sharepoint-validate-access",
-  async (_event, _url) => {
-    return true;
-  }
-);
+ipcMain.handle("sharepoint-validate-access", async (_event, _url) => {
+  return true;
+});
 ipcMain.handle("window-create-new", async () => {
   try {
     const newWindow = createBrowserWindow(false);
@@ -5683,16 +5644,13 @@ app.whenReady().then(async () => {
       }
       callback(0);
     });
-    sessionInstance.cookies.on(
-      "changed",
-      (_event, cookie, _cause, removed) => {
-        if (process.env.NODE_ENV === "development") {
-          console.log(
-            `🍪 Cookie ${removed ? "removed" : "added"}: ${cookie.name} for ${cookie.domain}`
-          );
-        }
+    sessionInstance.cookies.on("changed", (_event, cookie, _cause, removed) => {
+      if (process.env.NODE_ENV === "development") {
+        console.log(
+          `🍪 Cookie ${removed ? "removed" : "added"}: ${cookie.name} for ${cookie.domain}`
+        );
       }
-    );
+    });
   };
   configureSecurity(session.defaultSession);
   configureSecurity(sharedAuthSession);
@@ -5700,7 +5658,8 @@ app.whenReady().then(async () => {
   if (process.platform === "darwin" && app.dock) {
     app.dock.setIcon(path.join(__dirname, "../build/icon.png"));
   }
-  await loadEnvironmentVariables();
+  loadEnvironmentVariables().catch(() => {
+  });
   configureSecureSession();
   app.on(
     "certificate-error",
@@ -5713,15 +5672,17 @@ app.whenReady().then(async () => {
       }
     }
   );
-  console.log("🔌 Starting VPN connection...");
-  const vpnConnected2 = await connectVPN();
-  updateVPNStatus(vpnConnected2);
-  if (!vpnConnected2) {
-    console.log("❌ VPN connection failed - starting with restricted access");
-  } else {
-    console.log("✅ VPN connected successfully - unrestricted access enabled");
-  }
   createWindow();
+  setImmediate(async () => {
+    console.log("🔌 Starting VPN connection...");
+    const connected = await connectVPN();
+    updateVPNStatus(connected);
+    if (!connected) {
+      console.log("❌ VPN connection failed - starting with restricted access");
+    } else {
+      console.log("✅ VPN connected successfully - unrestricted access enabled");
+    }
+  });
 });
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
@@ -5771,7 +5732,7 @@ app.on("web-contents-created", (_event, contents) => {
       console.log("🔗 [setWindowOpenHandler] Website popup allowed:", url);
       return { action: "allow" };
     }
-    console.log("🚫 [setWindowOpenHandler] Popup blocked for security:", url);
+    console.log("� [setWindowOpenHandler] Popup blocked for security:", url);
     return { action: "deny" };
   });
   contents.on("will-navigate", (event, navigationUrl) => {
@@ -5894,7 +5855,122 @@ process.on("SIGTERM", () => {
   app.quit();
 });
 app.setAsDefaultProtocolClient("aussievault");
-app.on("second-instance", (_event, _argv) => {
+const exchangeCodeForToken = async (code) => {
+  const codeVerifier = global.pkceCodeVerifier;
+  if (!codeVerifier) {
+    console.error("PKCE code verifier not found.");
+    throw new Error("PKCE code verifier not found.");
+  }
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  if (!clientId || clientId === "YOUR_CLIENT_ID") {
+    throw new Error(
+      "Google OAuth not configured. Please set GOOGLE_CLIENT_ID environment variable."
+    );
+  }
+  console.log("🔄 Exchanging authorization code for tokens...");
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      code,
+      client_id: clientId,
+      redirect_uri: "aussievault://callback",
+      grant_type: "authorization_code",
+      code_verifier: codeVerifier
+    })
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("❌ Token exchange failed:", response.status, errorText);
+    throw new Error(
+      `Token exchange failed: ${response.status} ${response.statusText}`
+    );
+  }
+  const tokens = await response.json();
+  console.log("✅ OAuth tokens received successfully");
+  return tokens;
+};
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  console.log("Received OAuth callback URL:", url);
+  const urlObj = new URL(url);
+  const authCode = urlObj.searchParams.get("code");
+  const error = urlObj.searchParams.get("error");
+  if (authCode) {
+    console.log("OAuth Authorization Code:", authCode);
+    exchangeCodeForToken(authCode).then(async (tokens) => {
+      const userResponse = await fetch(
+        `https://www.googleapis.com/oauth2/v1/userinfo?access_token=${tokens.access_token}`
+      );
+      const userInfo = await userResponse.json();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("google-signin-success", userInfo);
+      }
+    }).catch((err) => {
+      console.error("Error exchanging code:", err);
+      if (mainWindow) {
+        mainWindow.webContents.send("oauth-error", err.message);
+      }
+    });
+  } else if (error) {
+    console.error("OAuth Error:", error);
+    if (mainWindow) {
+      mainWindow.webContents.send("oauth-error", error);
+    }
+  }
+});
+app.on("second-instance", (_event, argv) => {
+  const url = argv.find((arg) => arg.startsWith("aussievault://"));
+  if (url) {
+    const urlObj = new URL(url);
+    const authCode = urlObj.searchParams.get("code");
+    const error = urlObj.searchParams.get("error");
+    if (authCode) {
+      console.log("OAuth Authorization Code (second-instance):", authCode);
+      exchangeCodeForToken(authCode).then(async (tokens) => {
+        const userResponse = await fetch(
+          `https://www.googleapis.com/oauth2/v1/userinfo?access_token=${tokens.access_token}`
+        );
+        const userInfo = await userResponse.json();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("google-signin-success", userInfo);
+        }
+      }).catch((err) => {
+        console.error("Error exchanging code:", err);
+        if (mainWindow) {
+          mainWindow.webContents.send("oauth-error", err.message);
+        }
+      });
+    } else if (error) {
+      console.error("OAuth Error (second-instance):", error);
+      if (mainWindow) {
+        mainWindow.webContents.send("oauth-error", error);
+      }
+    }
+  }
+});
+ipcMain.on("start-google-signin", () => {
+  const { codeVerifier, codeChallenge } = generatePKCECodes();
+  global.pkceCodeVerifier = codeVerifier;
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  console.log("🔐 Starting Google OAuth flow...");
+  console.log(
+    "📋 Client ID configured:",
+    clientId ? `${clientId.substring(0, 20)}...` : "NOT SET"
+  );
+  if (!clientId || clientId === "YOUR_CLIENT_ID") {
+    console.error("❌ GOOGLE_CLIENT_ID not properly configured");
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(
+        "oauth-error",
+        "Google OAuth not configured. Please set GOOGLE_CLIENT_ID environment variable."
+      );
+    }
+    return;
+  }
+  const signInUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=aussievault://callback&response_type=code&scope=profile%20email&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+  console.log("🌐 Opening OAuth URL in external browser...");
+  shell.openExternal(signInUrl);
 });
 export {
   MAIN_DIST,

@@ -352,14 +352,7 @@ export const useVPN = (userAccessLevel?: number) => {
     };
   }, []);
 
-  // Periodic VPN status check - reduced frequency to minimize system load
-  useEffect(() => {
-    const interval = setInterval(() => {
-      checkVPNStatus();
-    }, 60000); // Check every 60 seconds (reduced from 15s to prevent API spam)
-
-    return () => clearInterval(interval);
-  }, [checkVPNStatus]);
+  // Removed periodic VPN status checks; rely on initial check and user actions
 
   // Auto-reconnect logic - triggered when status changes to disconnected
   useEffect(() => {

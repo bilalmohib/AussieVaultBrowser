@@ -371,61 +371,71 @@ const checkCurrentIP = async (): Promise<boolean> => {
     "https://ipinfo.io/json",
     "https://ipapi.co/json",
     "https://ip-api.com/json",
-    "https://freegeoip.app/json/",
-    "https://extreme-ip-lookup.com/json/",
   ];
 
-  for (const api of apis) {
-    try {
-      const response = await fetch(api, {
-        signal: AbortSignal.timeout(8000),
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        },
-      });
-
-      if (!response.ok) continue;
-
-      const data = await response.json();
-      const ip = data.ip || data.query || "";
-      const country =
-        data.country || data.country_name || data.countryCode || "";
-      const region = data.region || data.regionName || "";
-      const city = data.city || "";
-
-      if (country) {
-        console.log(`🔍 Current public IP: ${ip}`);
-        console.log(`🔍 Location: ${city}, ${region}, ${country}`);
-
-        const isAustralianIP = isAustralianCountry(country);
-
-        if (isAustralianIP) {
-          console.log("🇦🇺 ✅ VERIFIED: Connected via Australian VPN!");
-          console.log(`📍 Australian location confirmed: ${city}, ${region}`);
-          return true;
-        } else {
-          console.log(
-            "🚨 ❌ SECURITY VIOLATION: Not connected to Australian VPN!"
-          );
-          console.log(`🚫 Current location: ${country} - BROWSING BLOCKED`);
-          console.log(
-            "⚠️  Please connect to Australian VPN server to continue"
-          );
-          return false;
-        }
+  // Helper: basic Promise.any polyfill to return first fulfilled
+  const promiseAny = <T>(promises: Promise<T>[]): Promise<T> => {
+    return new Promise<T>((resolve, reject) => {
+      let rejectedCount = 0;
+      const total = promises.length;
+      if (total === 0) {
+        reject(new Error("No promises provided"));
+        return;
       }
-    } catch (error) {
-      console.log(`🔍 API ${api} failed, trying next...`);
-      continue;
+      promises.forEach((p) => {
+        p.then(resolve).catch(() => {
+          rejectedCount += 1;
+          if (rejectedCount === total) {
+            reject(new Error("All IP APIs failed"));
+          }
+        });
+      });
+    });
+  };
+
+  // Race all APIs with shorter timeouts; first success wins
+  try {
+    const result = await promiseAny(
+      apis.map(async (api) => {
+        const response = await fetch(api, {
+          signal: AbortSignal.timeout(3000),
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          },
+        });
+        if (!response.ok) throw new Error("bad response");
+        const data = await response.json();
+        const ip = data.ip || data.query || "";
+        const country = data.country || data.country_name || data.countryCode || "";
+        const region = data.region || data.regionName || "";
+        const city = data.city || "";
+        return { ip, country, region, city };
+      })
+    );
+
+    const { ip, country, region, city } = result as any;
+    console.log(`🔍 Current public IP: ${ip}`);
+    console.log(`🔍 Location: ${city}, ${region}, ${country}`);
+    const isAustralianIP = isAustralianCountry(country);
+    if (isAustralianIP) {
+      console.log("🇦🇺 ✅ VERIFIED: Connected via Australian VPN!");
+      console.log(`📍 Australian location confirmed: ${city}, ${region}`);
+      return true;
     }
+    console.log("🚨 ❌ SECURITY VIOLATION: Not connected to Australian VPN!");
+    console.log(`🚫 Current location: ${country} - BROWSING BLOCKED`);
+    console.log("⚠️  Please connect to Australian VPN server to continue");
+    return false;
+  } catch {
+    // fall through to fallback
   }
 
   // Fallback: try basic IP detection without country info
   console.log("🔄 PowerShell command failed, trying simpler IP check...");
   try {
     const fallbackResponse = await fetch("https://api.ipify.org?format=json", {
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(2000),
     });
 
     if (fallbackResponse.ok) {
@@ -1804,31 +1814,8 @@ function createBrowserWindow(isMain: boolean = false): BrowserWindow {
       }
     }, 500); // Reduced delay to fix race condition
 
-    // 🇦🇺 PERIODIC AUSTRALIAN VPN VERIFICATION: Check every 30 seconds
-    setInterval(async () => {
-      try {
-        console.log("🔍 🇦🇺 Performing periodic Australian VPN verification...");
-        const isStillConnected = await checkWireGuardConnection();
-
-        if (vpnConnected !== isStillConnected) {
-          if (isStillConnected) {
-            console.log("🇦🇺 ✅ VPN connection to Australia restored");
-          } else {
-            console.log(
-              "🚨 ❌ VPN connection to Australia lost - Blocking all external requests"
-            );
-          }
-          updateVPNStatus(isStillConnected);
-        }
-      } catch (error) {
-        console.log(
-          "🚨 ❌ Periodic VPN check failed - Assuming disconnected for security"
-        );
-        if (vpnConnected) {
-          updateVPNStatus(false);
-        }
-      }
-    }, 30000); // Check every 30 seconds
+    // Note: Removed periodic Australian VPN verification to avoid repeated checks.
+    // VPN status is verified once at startup above, and can be checked on-demand.
   }
 
   newWindow.on("closed", () => {
@@ -2054,17 +2041,18 @@ ipcMain.handle("system-get-environment", () => {
 
 // Real VPN handlers
 ipcMain.handle("vpn-get-status", async () => {
-  console.log("🔍 VPN status requested - running comprehensive check...");
-  try {
-    const isConnected = await checkWireGuardConnection();
-    const status = isConnected ? "connected" : "disconnected";
-    console.log(`📊 VPN status check result: ${status}`);
-    updateVPNStatus(isConnected);
-    return status;
-  } catch (error) {
-    console.log("❌ VPN status check error:", error);
-    return "disconnected";
-  }
+  // Return cached status immediately to avoid blocking startup/UI
+  const status = vpnConnected ? "connected" : "disconnected";
+  // Optionally verify in background without blocking
+  setImmediate(async () => {
+    try {
+      const verified = await checkWireGuardConnection();
+      if (verified !== vpnConnected) updateVPNStatus(verified);
+    } catch {
+      // ignore background verification errors
+    }
+  });
+  return status;
 });
 
 ipcMain.handle("vpn-connect", async (_event, _provider: string) => {
@@ -2989,7 +2977,8 @@ app.whenReady().then(async () => {
     app.dock.setIcon(path.join(__dirname, "../build/icon.png"));
   }
 
-  await loadEnvironmentVariables();
+  // Load env and configure session quickly (non-blocking where possible)
+  loadEnvironmentVariables().catch(() => {});
   configureSecureSession();
 
   app.on(
@@ -3007,17 +2996,20 @@ app.whenReady().then(async () => {
     }
   );
 
-  console.log("🔌 Starting VPN connection...");
-  const vpnConnected = await connectVPN();
-  updateVPNStatus(vpnConnected);
-
-  if (!vpnConnected) {
-    console.log("❌ VPN connection failed - starting with restricted access");
-  } else {
-    console.log("✅ VPN connected successfully - unrestricted access enabled");
-  }
-
+  // Create the window immediately for faster perceived startup
   createWindow();
+
+  // Start VPN connection in background to avoid blocking UI
+  setImmediate(async () => {
+    console.log("🔌 Starting VPN connection...");
+    const connected = await connectVPN();
+    updateVPNStatus(connected);
+    if (!connected) {
+      console.log("❌ VPN connection failed - starting with restricted access");
+    } else {
+      console.log("✅ VPN connected successfully - unrestricted access enabled");
+    }
+  });
 });
 
 // Remove global shortcuts - they cause duplicates with before-input-event

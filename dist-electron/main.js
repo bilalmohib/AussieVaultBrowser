@@ -4045,7 +4045,8 @@ const configureSecureSession = () => {
         callback({ cancel: false });
         return;
       }
-      if (url.includes("localhost") || url.includes("127.0.0.1") || url.startsWith("file://") || url.startsWith("data:")) {
+      if (url.includes("localhost") || url.includes("127.0.0.1") || url.startsWith("file://") || url.startsWith("data:") || url.startsWith("devtools://")) {
+        console.log("✅ SHARED AUTH: Allowing developer tools request:", details.url);
         callback({ cancel: false });
         return;
       }
@@ -4102,6 +4103,11 @@ const configureSecureSession = () => {
         callback({ cancel: false });
         return;
       }
+      if (details.url.toLowerCase().startsWith("devtools://")) {
+        console.log("✅ SHARED AUTH: Allowing developer tools request:", details.url);
+        callback({ cancel: false });
+        return;
+      }
       console.log(
         "🚫 SHARED AUTH: BLOCKING unknown protocol request:",
         details.url
@@ -4130,6 +4136,7 @@ const configureSecureSession = () => {
     const url = details.url.toLowerCase();
     if (url.includes("localhost") || url.includes("127.0.0.1") || url.startsWith("file://") || url.startsWith("chrome-extension://") || url.startsWith("devtools://")) {
       if (url.startsWith("devtools://")) {
+        console.log("✅ Allowing developer tools request:", details.url);
         callback({ cancel: false });
         return;
       }
@@ -4676,6 +4683,7 @@ const configureSecureSession = () => {
     const url = details.url.toLowerCase();
     if (url.includes("localhost") || url.includes("127.0.0.1") || url.startsWith("file://") || url.startsWith("chrome-extension://") || url.startsWith("devtools://")) {
       if (url.startsWith("devtools://")) {
+        console.log("✅ Allowing developer tools request:", details.url);
         callback({ cancel: false });
         return;
       }
@@ -4817,6 +4825,11 @@ function createBrowserWindow(isMain = false) {
     return { action: "deny" };
   });
   newWindow.webContents.on("before-input-event", (event, input) => {
+    if (input.type === "keyDown" && input.key === "F12") {
+      newWindow.webContents.openDevTools();
+      event.preventDefault();
+      return;
+    }
     if (input.type === "keyDown" && (input.modifiers.includes("control") || input.modifiers.includes("meta"))) {
       const key = input.key.toLowerCase();
       const criticalShortcuts = [
@@ -4833,6 +4846,12 @@ function createBrowserWindow(isMain = false) {
         "0"
       ];
       const isShiftShortcut = input.modifiers.includes("shift") && ["o", "i", "t"].includes(key);
+      const isDevToolsShortcut = input.modifiers.includes("shift") && key === "i";
+      if (isDevToolsShortcut) {
+        newWindow.webContents.openDevTools();
+        event.preventDefault();
+        return;
+      }
       if (criticalShortcuts.includes(key) || isShiftShortcut) {
         event.preventDefault();
         let shortcutAction = "";
@@ -4926,8 +4945,73 @@ function createBrowserWindow(isMain = false) {
       }
     }
   });
-  if (process.env.NODE_ENV === "production") {
+  const template = [
+    {
+      label: "File",
+      submenu: [
+        { role: "quit" }
+      ]
+    },
+    {
+      label: "Developer",
+      submenu: [
+        {
+          label: "Toggle Developer Tools",
+          accelerator: "F12",
+          click: () => newWindow.webContents.toggleDevTools()
+        },
+        {
+          label: "Force Open Developer Tools",
+          click: () => newWindow.webContents.openDevTools()
+        }
+      ]
+    },
+    {
+      label: "Edit",
+      submenu: [
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" }
+      ]
+    },
+    {
+      label: "View",
+      submenu: [
+        { role: "reload" },
+        { role: "forceReload" },
+        { role: "toggleDevTools" },
+        { type: "separator" },
+        { role: "resetZoom" },
+        { role: "zoomIn" },
+        { role: "zoomOut" },
+        { type: "separator" },
+        { role: "togglefullscreen" }
+      ]
+    },
+    {
+      label: "Window",
+      submenu: [
+        { role: "minimize" },
+        { role: "zoom" },
+        { role: "close" }
+      ]
+    }
+  ];
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+  if (process.env.NODE_ENV === "production" && process.env.SECURITY_BLOCK_DEVTOOLS === "true") {
     newWindow.setMenuBarVisibility(false);
+  } else {
+    newWindow.webContents.on("did-finish-load", () => {
+      setTimeout(() => {
+        if (!newWindow.webContents.isDevToolsOpened()) {
+          console.log("🔧 Enabling developer tools for development mode");
+        }
+      }, 1e3);
+    });
   }
   return newWindow;
 }
@@ -6066,6 +6150,14 @@ ipcMain.on("sharepoint-start-drag", (event, { filePath }) => {
   } catch (err) {
     console.error("❌ Failed to start native drag:", err);
   }
+});
+ipcMain.handle("open-dev-tools", () => {
+  const focusedWindow = BrowserWindow.getFocusedWindow();
+  if (focusedWindow) {
+    focusedWindow.webContents.openDevTools();
+    return { success: true };
+  }
+  return { success: false, error: "No focused window" };
 });
 if (process.defaultApp) {
   if (process.argv.length >= 2) {

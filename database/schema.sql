@@ -506,7 +506,7 @@ COMMENT ON TABLE vpn_connections IS 'VPN connection monitoring and analytics';
 COMMENT ON TABLE navigation_logs IS 'User browsing activity and access control logs';
 COMMENT ON TABLE browsing_history IS 'Chrome-like browsing history with local and cloud sync';
 COMMENT ON TABLE bookmarks IS 'User bookmarks with categorization and access control';
-COMMENT ON TABLE system_settings IS 'Application configuration and system settings';
+COMMENT ON TABLE system_settings IS 'Application configuration and system settings'; 
 COMMENT ON TABLE environment_variables IS 'Application environment variables with categorization and access control';
 
 -- Migration script function to move environment variables from system_settings to environment_variables

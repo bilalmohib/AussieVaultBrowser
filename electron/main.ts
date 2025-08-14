@@ -751,8 +751,10 @@ const configureSecureSession = (): void => {
         url.includes("localhost") ||
         url.includes("127.0.0.1") ||
         url.startsWith("file://") ||
-        url.startsWith("data:")
+        url.startsWith("data:") ||
+        url.startsWith("devtools://")
       ) {
+        console.log("✅ SHARED AUTH: Allowing developer tools request:", details.url);
         callback({ cancel: false });
         return;
       }
@@ -854,12 +856,18 @@ const configureSecureSession = (): void => {
         return;
       }
 
-      // Block everything else
-      console.log(
-        "🚫 SHARED AUTH: BLOCKING unknown protocol request:",
-        details.url
-      );
-      callback({ cancel: true });
+          // Block everything else except devtools
+    if (details.url.toLowerCase().startsWith("devtools://")) {
+      console.log("✅ SHARED AUTH: Allowing developer tools request:", details.url);
+      callback({ cancel: false });
+      return;
+    }
+    
+    console.log(
+      "🚫 SHARED AUTH: BLOCKING unknown protocol request:",
+      details.url
+    );
+    callback({ cancel: true });
     }
   );
 
@@ -903,7 +911,9 @@ const configureSecureSession = (): void => {
       url.startsWith("chrome-extension://") ||
       url.startsWith("devtools://")
     ) {
+      // Always allow devtools protocol
       if (url.startsWith("devtools://")) {
+        console.log("✅ Allowing developer tools request:", details.url);
         callback({ cancel: false });
         return;
       }
@@ -1147,7 +1157,7 @@ const configureSecureSession = (): void => {
     try {
       const choice = await downloadPromise;
       await processDownloadChoice(downloadId, choice, item);
-    } catch (err) {
+    } catch (err: any) {
       console.error("❌ Download handling error:", err);
       await processDownloadChoice(downloadId, "local", item);
     }
@@ -1211,7 +1221,7 @@ const configureSecureSession = (): void => {
         } else {
           console.error("❌ setSavePath function not available on download item!");
         }
-      } catch (e) {
+      } catch (e: any) {
         console.warn("⚠️ Could not set save path for local download:", e);
       }
 
@@ -1231,11 +1241,11 @@ const configureSecureSession = (): void => {
             } else if (!item.isPaused || !item.isPaused()) {
               console.log("ℹ️ Download not paused, no need to resume:", item.getFilename());
             }
-          } catch (innerError) {
+          } catch (innerError: any) {
             console.error("❌ Error during download resume attempt:", innerError);
           }
         }, 100);
-      } catch (e) {
+      } catch (e: any) {
         console.error("⚠️ Critical error resuming download:", e);
       }
 
@@ -1369,7 +1379,7 @@ const configureSecureSession = (): void => {
               // Clean up temp file
               try {
                 await fs.unlink(tempPath);
-              } catch (cleanupError) {
+              } catch (cleanupError: any) {
                 console.warn("⚠️ Could not clean up temp file:", cleanupError);
               }
 
@@ -1387,7 +1397,7 @@ const configureSecureSession = (): void => {
                 }
               });
               resolve();
-            } catch (uploadError) {
+            } catch (uploadError: any) {
               console.error("❌ Meta storage upload failed:", uploadError);
 
               const errorData = {
@@ -1643,7 +1653,9 @@ const configureSecureSession = (): void => {
       url.startsWith("chrome-extension://") ||
       url.startsWith("devtools://")
     ) {
+      // Always allow devtools protocol
       if (url.startsWith("devtools://")) {
+        console.log("✅ Allowing developer tools request:", details.url);
         callback({ cancel: false });
         return;
       }
@@ -1870,6 +1882,14 @@ function createBrowserWindow(isMain: boolean = false): BrowserWindow {
 
   // 🔐 AGGRESSIVE KEYBOARD HANDLING: Intercept all keyboard events before webview
   newWindow.webContents.on("before-input-event", (event: any, input: any) => {
+    // Special handling for F12 key (Developer Tools)
+    if (input.type === "keyDown" && input.key === "F12") {
+      // Open developer tools directly
+      newWindow.webContents.openDevTools();
+      event.preventDefault();
+      return;
+    }
+    
     if (
       input.type === "keyDown" &&
       (input.modifiers.includes("control") || input.modifiers.includes("meta"))
@@ -1893,6 +1913,18 @@ function createBrowserWindow(isMain: boolean = false): BrowserWindow {
       ];
       const isShiftShortcut =
         input.modifiers.includes("shift") && ["o", "i", "t"].includes(key);
+      
+      // Special handling for developer tools (Ctrl+Shift+I)
+      const isDevToolsShortcut = 
+        input.modifiers.includes("shift") && key === "i";
+        
+      // Handle developer tools shortcut directly
+      if (isDevToolsShortcut) {
+        // Open developer tools directly
+        newWindow.webContents.openDevTools();
+        event.preventDefault();
+        return;
+      }
 
       if (criticalShortcuts.includes(key) || isShiftShortcut) {
         // console.log('⌨️ [MAIN] Preventing webview from handling critical shortcut:', key);
@@ -2020,9 +2052,79 @@ function createBrowserWindow(isMain: boolean = false): BrowserWindow {
     }
   });
 
-  // Production: Disable menu bar
-  if (process.env.NODE_ENV === "production") {
+  // Set up application menu with developer tools
+  const template = [
+    {
+      label: 'File',
+      submenu: [
+        { role: 'quit' }
+      ]
+    },
+    {
+      label: 'Developer',
+      submenu: [
+        { 
+          label: 'Toggle Developer Tools',
+          accelerator: 'F12',
+          click: () => newWindow.webContents.toggleDevTools()
+        },
+        {
+          label: 'Force Open Developer Tools',
+          click: () => newWindow.webContents.openDevTools()
+        }
+      ]
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' }
+      ]
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
+      ]
+    },
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        { role: 'close' }
+      ]
+    }
+  ];
+
+  const menu = Menu.buildFromTemplate(template as any);
+  Menu.setApplicationMenu(menu);
+
+  // Only hide menu bar in production
+  if (process.env.NODE_ENV === "production" && process.env.SECURITY_BLOCK_DEVTOOLS === "true") {
     newWindow.setMenuBarVisibility(false);
+  } else {
+    // In development mode, ensure developer tools are enabled
+    newWindow.webContents.on('did-finish-load', () => {
+      // Add a slight delay to ensure window is fully initialized
+      setTimeout(() => {
+        if (!newWindow.webContents.isDevToolsOpened()) {
+          console.log('🔧 Enabling developer tools for development mode');
+        }
+      }, 1000);
+    });
   }
 
   return newWindow;
@@ -3528,13 +3630,13 @@ ipcMain.handle(
         try {
           await fs.unlink(tempPath);
           console.log(`🧹 Cleaned up temp file: ${tempPath}`);
-        } catch (cleanupError) {
+        } catch (cleanupError: any) {
           console.warn(`⚠️ Failed to cleanup temp file: ${cleanupError}`);
         }
       }, 300000); // 5 minute delay
 
       return { success: true, path: tempPath };
-    } catch (err) {
+    } catch (err: any) {
       console.error("❌ Failed to prepare temp file:", err);
       return {
         success: false,
@@ -3558,9 +3660,19 @@ ipcMain.on("sharepoint-start-drag", (event: any, { filePath }: any) => {
     });
 
     console.log(`✅ Native drag started successfully`);
-  } catch (err) {
+  } catch (err: any) {
     console.error("❌ Failed to start native drag:", err);
   }
+});
+
+// Add IPC handler for opening developer tools
+ipcMain.handle("open-dev-tools", () => {
+  const focusedWindow = BrowserWindow.getFocusedWindow();
+  if (focusedWindow) {
+    focusedWindow.webContents.openDevTools();
+    return { success: true };
+  }
+  return { success: false, error: "No focused window" };
 });
 
 // Handle app protocol (for production)

@@ -1075,7 +1075,11 @@ const configureSecureSession = (): void => {
 
   // 🔥 DOWNLOAD HANDLING: Enhanced download handler with Meta storage support
   const handleDownload = async (event: any, item: any, sessionName: string) => {
+    console.log(`🔄 Download requested: ${item.getFilename()} (${sessionName})`);
+    
+    // Check if downloads are blocked by security policy
     if (process.env.SECURITY_BLOCK_DOWNLOADS === "true") {
+      console.log(`🚫 Downloads blocked by security policy: ${item.getFilename()}`);
       event.preventDefault();
       windows.forEach((window) => {
         if (window && !window.isDestroyed()) {
@@ -1089,22 +1093,31 @@ const configureSecureSession = (): void => {
       return;
     }
 
+    // Generate unique download ID
     const downloadId = `download_${Date.now()}_${Math.random()
       .toString(36)
       .substr(2, 9)}`;
+    
+    console.log(`📥 New download initiated (ID: ${downloadId}): ${item.getFilename()}`);
 
     // IMPORTANT: Do NOT call event.preventDefault() here or the download is fully cancelled.
     // Instead, pause so we can resume after user choice.
     try {
-      if (item.pause && !(item.isPaused && item.isPaused())) {
-        item.pause();
-        console.log(
-          "⏸️ Download paused awaiting user choice:",
-          item.getFilename()
-        );
+      if (item.pause && typeof item.pause === "function") {
+        const isPaused = item.isPaused && typeof item.isPaused === "function" ? item.isPaused() : false;
+        
+        if (!isPaused) {
+          console.log(`⏸️ Pausing download to await user choice: ${item.getFilename()}`);
+          item.pause();
+          console.log(`✅ Download paused successfully: ${item.getFilename()}`);
+        } else {
+          console.log(`ℹ️ Download already paused: ${item.getFilename()}`);
+        }
+      } else {
+        console.warn(`⚠️ Cannot pause download - pause method unavailable: ${item.getFilename()}`);
       }
-    } catch (e) {
-      console.warn("⚠️ Could not pause download before choice:", e);
+    } catch (e: any) {
+      console.error(`❌ Failed to pause download: ${e.message}`, e);
     }
 
     const downloadPromise = new Promise<"local" | "meta">((resolve, reject) => {
@@ -1146,6 +1159,8 @@ const configureSecureSession = (): void => {
     choice: "local" | "meta",
     item: any
   ) => {
+    console.log(`🔄 Processing download choice: ${choice} for ${item.getFilename()}`);
+    
     const downloadData = {
       id: downloadId,
       filename: item.getFilename(),
@@ -1153,6 +1168,16 @@ const configureSecureSession = (): void => {
       totalBytes: item.getTotalBytes(),
       choice: choice,
     };
+
+    // Log download item properties for debugging
+    console.log(`📦 Download item details:`, {
+      filename: item.getFilename?.() || "unknown",
+      url: item.getURL?.() || "unknown",
+      canResume: !!item.resume,
+      isPaused: item.isPaused?.() || false,
+      savePath: item.getSavePath?.() || "not set",
+      totalBytes: item.getTotalBytes?.() || 0,
+    });
 
     if (choice === "local") {
       // Handle local download
@@ -1182,6 +1207,9 @@ const configureSecureSession = (): void => {
         const targetPath = path.join(downloadsDir, filename);
         if (item.setSavePath && typeof item.setSavePath === "function") {
           item.setSavePath(targetPath);
+          console.log(`📥 Set download path to: ${targetPath}`);
+        } else {
+          console.error("❌ setSavePath function not available on download item!");
         }
       } catch (e) {
         console.warn("⚠️ Could not set save path for local download:", e);
@@ -1189,12 +1217,26 @@ const configureSecureSession = (): void => {
 
       // Resume if previously paused
       try {
-        if (item.isPaused && item.isPaused()) {
-          item.resume();
-          console.log("▶️ Download resumed (local):", item.getFilename());
-        }
+        // Force a small delay to ensure save path is registered
+        setTimeout(() => {
+          try {
+            if (item.isPaused && typeof item.isPaused === "function" && item.isPaused()) {
+              console.log("▶️ Resuming paused download:", item.getFilename());
+              if (item.resume && typeof item.resume === "function") {
+                item.resume();
+                console.log("✅ Download resumed successfully (local):", item.getFilename());
+              } else {
+                console.error("❌ resume function not available on download item!");
+              }
+            } else if (!item.isPaused || !item.isPaused()) {
+              console.log("ℹ️ Download not paused, no need to resume:", item.getFilename());
+            }
+          } catch (innerError) {
+            console.error("❌ Error during download resume attempt:", innerError);
+          }
+        }, 100);
       } catch (e) {
-        console.warn("⚠️ Could not resume download:", e);
+        console.error("⚠️ Critical error resuming download:", e);
       }
 
       const downloadStartedData = {
@@ -1230,13 +1272,33 @@ const configureSecureSession = (): void => {
       });
 
       item.once("done", (_event: any, state: any) => {
+        const savePath = state === "completed" && item.getSavePath ? item.getSavePath() : null;
+        console.log(`📥 Download ${state}: ${item.getFilename()}${savePath ? ` -> ${savePath}` : ''}`);
+        
         const completedData = {
           id: downloadId,
           filename: item.getFilename(),
           state,
-          filePath: state === "completed" ? item.getSavePath() : null,
+          filePath: savePath,
           type: "local",
         };
+        
+        if (state !== "completed") {
+          console.error(`❌ Download failed: ${item.getFilename()}, state: ${state}`);
+        } else {
+          console.log(`✅ Download completed successfully: ${item.getFilename()}`);
+          // Optional: Try to reveal the file in the file explorer
+          try {
+            if (savePath && require('fs').existsSync(savePath)) {
+              console.log(`📂 File exists at: ${savePath}`);
+            } else {
+              console.warn(`⚠️ Downloaded file not found at expected location: ${savePath}`);
+            }
+          } catch (e: any) {
+            console.error(`❌ Error verifying download: ${e.message}`);
+          }
+        }
+        
         windows.forEach((window) => {
           if (window && !window.isDestroyed()) {
             window.webContents.send("download-completed", completedData);

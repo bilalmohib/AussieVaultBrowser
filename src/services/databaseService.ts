@@ -25,21 +25,45 @@ export class SecureBrowserDatabaseService {
       // console.log('🔑 Initializing user session for:', email)
       // console.log('🔍 Database connection check - Supabase URL exists:', !!import.meta.env?.NEXT_PUBLIC_SUPABASE_URL)
 
-      // Check if user exists in database
-      let user = await DatabaseService.getCurrentUser(email);
+      // Clear any existing user data to prevent stale data issues
+      this.currentUser = null;
+      
+      // Direct database check if user exists to ensure we get fresh data
+      const { data: existingUser, error: userError } = await supabase
+        .from("users")
+        .select("*")
+        .eq("email", email)
+        .single();
+        
+      if (userError && userError.code !== 'PGRST116') { // PGRST116 = no rows returned
+        console.error("❌ Error checking if user exists:", userError);
+        return false;
+      }
+      
+      let user = existingUser;
 
       if (!user) {
         // console.log('📝 Creating new user in database')
         // Create user in database if doesn't exist
+        // Get default access level from system settings or use 3 (highest level for best functionality)
+        const { data: settingsData } = await supabase
+          .from("system_settings")
+          .select("value")
+          .eq("key", "sharepoint_default_access_level")
+          .single();
+        
+        const defaultAccessLevel = settingsData?.value ? parseInt(settingsData.value) : 3;
+        
         const { data, error } = await supabase
           .from("users")
           .insert({
             email,
             name,
-            access_level: 1, // Default to restricted access
+            access_level: defaultAccessLevel,
             status: "active",
             device_id: DEVICE_ID,
             vpn_required: true,
+            can_edit_access_level: true, // Allow users to edit their access level
           })
           .select()
           .single();
@@ -319,7 +343,131 @@ export class SecureBrowserDatabaseService {
 
   // Get current user data
   static getCurrentUser(): User | null {
-    return this.currentUser;
+    // First check if we already have a user in memory
+    if (this.currentUser) {
+      return this.currentUser;
+    }
+
+    // If not, try to get the user from localStorage as a fallback
+    const storedAuth = localStorage.getItem("auth");
+    if (storedAuth) {
+      try {
+        const user = JSON.parse(storedAuth);
+        
+        // Validate required user fields
+        if (!user.id || !user.email || user.accessLevel === undefined) {
+          console.error("❌ Invalid user data in localStorage, missing required fields");
+          localStorage.removeItem("auth"); // Clear invalid data
+          return null;
+        }
+        
+        // Set as current user to maintain consistency
+        this.currentUser = user;
+        
+        // Schedule a background refresh to ensure data is up to date
+        this.scheduleUserDataRefresh(user.email);
+        
+        return user;
+      } catch (error) {
+        console.error("❌ Failed to parse stored user:", error);
+        localStorage.removeItem("auth"); // Clear corrupted data
+      }
+    }
+    
+    return null;
+  }
+  
+  // Schedule a background refresh of user data without blocking
+  private static scheduleUserDataRefresh(email: string): void {
+    // Use setTimeout to make this asynchronous and non-blocking
+    setTimeout(async () => {
+      try {
+        // Fetch latest user data from database
+        const { data, error } = await supabase
+          .from("users")
+          .select("*")
+          .eq("email", email)
+          .single();
+          
+        if (error || !data) {
+          console.error("❌ Failed to refresh user data in background:", error);
+          return;
+        }
+        
+        // Check if the data is different from what we have
+        if (this.currentUser && 
+            (this.currentUser.access_level !== data.access_level || 
+             this.currentUser.can_edit_access_level !== data.can_edit_access_level)) {
+          console.log("🔄 User data updated from database");
+          
+          // Update current user
+          this.currentUser = data;
+          
+          // Update localStorage
+          const authUser = {
+            id: data.id,
+            name: data.name,
+            email: data.email,
+            accessLevel: data.access_level,
+            avatar: undefined
+          };
+          localStorage.setItem("auth", JSON.stringify(authUser));
+          
+          // Show dialog for user confirmation instead of force reloading
+          if (this.currentUser && this.currentUser.access_level !== data.access_level) {
+            console.log("🔄 Access level changed, showing reload dialog");
+            
+            const oldLevel = this.currentUser.access_level;
+            const newLevel = data.access_level;
+            
+            const message = `Your access level has been changed from Level ${oldLevel} to Level ${newLevel}. 
+            The browser needs to reload to apply these changes.`;
+            
+            this.showReloadConfirmationDialog("Access Level Updated", message);
+          }
+        }
+      } catch (error) {
+        console.error("❌ Error in background refresh:", error);
+      }
+    }, 0);
+  }
+  
+  // Refresh user data from the database
+  static async refreshCurrentUser(): Promise<User | null> {
+    if (!this.currentUser) {
+      return null;
+    }
+    
+    try {
+      const { data, error } = await supabase
+        .from("users")
+        .select("*")
+        .eq("email", this.currentUser.email)
+        .single();
+        
+      if (error || !data) {
+        console.error("❌ Failed to refresh user data:", error);
+        return this.currentUser;
+      }
+      
+      // Update the current user with fresh data from database
+      this.currentUser = data;
+      
+      // Also update localStorage
+      const authUser = {
+        id: data.id,
+        name: data.name,
+        email: data.email,
+        accessLevel: data.access_level,
+        avatar: undefined
+      };
+      localStorage.setItem("auth", JSON.stringify(authUser));
+      
+      return this.currentUser;
+    } catch (error) {
+      console.error("❌ Error refreshing user data:", error);
+      return this.currentUser;
+    }
   }
 
   // Get current session data
@@ -435,6 +583,58 @@ export class SecureBrowserDatabaseService {
   // Get device ID for this session
   static getDeviceId(): string {
     return DEVICE_ID;
+  }
+  
+  // Show a user-friendly dialog for reload confirmation
+  static showReloadConfirmationDialog(title: string, message: string): void {
+    // Create dialog container
+    const dialogContainer = document.createElement('div');
+    dialogContainer.style.position = 'fixed';
+    dialogContainer.style.top = '0';
+    dialogContainer.style.left = '0';
+    dialogContainer.style.width = '100%';
+    dialogContainer.style.height = '100%';
+    dialogContainer.style.backgroundColor = 'rgba(0,0,0,0.5)';
+    dialogContainer.style.display = 'flex';
+    dialogContainer.style.alignItems = 'center';
+    dialogContainer.style.justifyContent = 'center';
+    dialogContainer.style.zIndex = '10000';
+    
+    // Create dialog box
+    const dialogBox = document.createElement('div');
+    dialogBox.style.backgroundColor = '#fff';
+    dialogBox.style.borderRadius = '8px';
+    dialogBox.style.padding = '20px';
+    dialogBox.style.maxWidth = '450px';
+    dialogBox.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+    
+    // Add content
+    dialogBox.innerHTML = `
+      <h3 style="margin-top: 0; font-size: 18px; color: #333;">${title}</h3>
+      <p style="margin-bottom: 20px; color: #555;">${message}</p>
+      <div style="display: flex; justify-content: flex-end; gap: 10px;">
+        <button id="dialog-later" style="padding: 8px 16px; border: 1px solid #ddd; background: #f5f5f5; border-radius: 4px; cursor: pointer;">
+          Later
+        </button>
+        <button id="dialog-reload" style="padding: 8px 16px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer;">
+          Reload Now
+        </button>
+      </div>
+    `;
+    
+    // Add to DOM
+    dialogContainer.appendChild(dialogBox);
+    document.body.appendChild(dialogContainer);
+    
+    // Set up event listeners
+    document.getElementById('dialog-reload')?.addEventListener('click', () => {
+      document.body.removeChild(dialogContainer);
+      window.location.reload();
+    });
+    
+    document.getElementById('dialog-later')?.addEventListener('click', () => {
+      document.body.removeChild(dialogContainer);
+    });
   }
 
   // Debug function to manually test VPN connection logging
@@ -554,6 +754,24 @@ export class SecureBrowserDatabaseService {
       // Update current user if it's the same user
       if (this.currentUser && this.currentUser.email === email) {
         this.currentUser.access_level = newAccessLevel;
+        
+        // Also update localStorage to reflect new access level
+        const storedAuth = localStorage.getItem("auth");
+        if (storedAuth) {
+          try {
+            const authUser = JSON.parse(storedAuth);
+            authUser.accessLevel = newAccessLevel;
+            localStorage.setItem("auth", JSON.stringify(authUser));
+            
+            // Show dialog asking user permission to reload
+            const message = `Your access level has been successfully changed to Level ${newAccessLevel}.
+            The browser needs to reload to apply these changes.`;
+            
+            this.showReloadConfirmationDialog("Access Level Changed", message);
+          } catch (error) {
+            console.error("❌ Failed to update stored auth:", error);
+          }
+        }
       }
 
       return true;

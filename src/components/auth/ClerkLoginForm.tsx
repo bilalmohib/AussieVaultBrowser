@@ -12,6 +12,8 @@ import { Separator } from "../ui/separator";
 import { LoadingScreen } from "../ui/loading-screen";
 import { ErrorDisplay } from "../ui/error-display";
 import clerkAuth from "../../services/clerkService";
+import { SecureBrowserDatabaseService } from "@/services/databaseService";
+import { supabase } from "@/lib/supabase";
 
 import type { AuthState } from "../../types/clerk";
 import { Shield, Users, Lock, Chrome, Globe } from "lucide-react";
@@ -93,7 +95,7 @@ export const ClerkLoginForm: React.FC<ClerkLoginFormProps> = ({
       }
     };
 
-    const handleInitialAuthState = (state: AuthState) => {
+    const handleInitialAuthState = async (state: AuthState) => {
       if (!state.user) return;
       
       const userEmail = state.user.emailAddresses?.[0]?.emailAddress;
@@ -102,18 +104,56 @@ export const ClerkLoginForm: React.FC<ClerkLoginFormProps> = ({
         return;
       }
 
-      // Use Clerk data only - just once for initial state
-      onAuthSuccess({
-        id: state.user.id,
-        name: state.user.fullName || userEmail.split("@")[0],
-        email: userEmail,
-        accessLevel: 1,
-        canEditAccessLevel: false,
-        avatar: state.user.imageUrl || "",
-      });
+      try {
+        // Get user data from database including access level
+        const { data: userData, error } = await supabase
+          .from("users")
+          .select("*")
+          .eq("email", userEmail)
+          .single();
+        
+        if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
+          console.error("Error fetching user data:", error);
+          throw new Error("Failed to fetch user data from database");
+        }
+        
+        if (userData) {
+          // User exists in database, use database values
+          onAuthSuccess({
+            id: state.user.id,
+            name: userData.name || state.user.fullName || userEmail.split("@")[0],
+            email: userEmail,
+            accessLevel: userData.access_level,
+            canEditAccessLevel: userData.can_edit_access_level,
+            avatar: state.user.imageUrl || "",
+          });
+        } else {
+          // New user - will be created in databaseService during initialization
+          // Default values will be used that will get updated later
+          onAuthSuccess({
+            id: state.user.id,
+            name: state.user.fullName || userEmail.split("@")[0],
+            email: userEmail,
+            accessLevel: 3, // Default to highest access level, database will override if needed
+            canEditAccessLevel: true,
+            avatar: state.user.imageUrl || "",
+          });
+        }
+      } catch (error) {
+        console.error("Error in handleInitialAuthState:", error);
+        // Fallback to minimal data if database fetch fails
+        onAuthSuccess({
+          id: state.user.id,
+          name: state.user.fullName || userEmail.split("@")[0],
+          email: userEmail,
+          accessLevel: 3, // Default to highest access level
+          canEditAccessLevel: true,
+          avatar: state.user.imageUrl || "",
+        });
+      }
     };
     
-    const handleUserSignedIn = (state: AuthState) => {
+    const handleUserSignedIn = async (state: AuthState) => {
       if (!state.user) return;
       
       const userEmail = state.user.emailAddresses?.[0]?.emailAddress;
@@ -122,15 +162,53 @@ export const ClerkLoginForm: React.FC<ClerkLoginFormProps> = ({
         return;
       }
 
-      // Only notify parent on actual sign-in
-      onAuthSuccess({
-        id: state.user.id,
-        name: state.user.fullName || userEmail.split("@")[0],
-        email: userEmail,
-        accessLevel: 1,
-        canEditAccessLevel: false,
-        avatar: state.user.imageUrl,
-      });
+      try {
+        // Get user data from database including access level
+        const { data: userData, error } = await supabase
+          .from("users")
+          .select("*")
+          .eq("email", userEmail)
+          .single();
+        
+        if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
+          console.error("Error fetching user data:", error);
+          throw new Error("Failed to fetch user data from database");
+        }
+        
+        if (userData) {
+          // User exists in database, use database values
+          onAuthSuccess({
+            id: state.user.id,
+            name: userData.name || state.user.fullName || userEmail.split("@")[0],
+            email: userEmail,
+            accessLevel: userData.access_level,
+            canEditAccessLevel: userData.can_edit_access_level,
+            avatar: state.user.imageUrl || "",
+          });
+        } else {
+          // New user - will be created in databaseService during initialization
+          // Default values will be used that will get updated later
+          onAuthSuccess({
+            id: state.user.id,
+            name: state.user.fullName || userEmail.split("@")[0],
+            email: userEmail,
+            accessLevel: 3, // Default to highest access level, database will override if needed
+            canEditAccessLevel: true, 
+            avatar: state.user.imageUrl || "",
+          });
+        }
+      } catch (error) {
+        console.error("Error in handleUserSignedIn:", error);
+        // Fallback to minimal data if database fetch fails
+        onAuthSuccess({
+          id: state.user.id,
+          name: state.user.fullName || userEmail.split("@")[0],
+          email: userEmail,
+          accessLevel: 3, // Default to highest level to ensure functionality
+          canEditAccessLevel: true,
+          avatar: state.user.imageUrl || "",
+        });
+      }
     };
 
     initializeClerk();

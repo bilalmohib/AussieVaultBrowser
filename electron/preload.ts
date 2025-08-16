@@ -146,11 +146,6 @@ contextBridge.exposeInMainWorld("secureBrowser", {
     getEnvironment: () => ipcRenderer.invoke("system-get-environment"),
     isProduction: () => false, // Will be determined by main process
   },
-  
-  // Developer Tools
-  devTools: {
-    open: () => ipcRenderer.invoke("open-dev-tools"),
-  },
 
   // Extension Management
   extensions: {
@@ -312,9 +307,6 @@ export interface SecureBrowserAPI {
     getVersion: () => Promise<string>;
     getEnvironment: () => Promise<string>;
     isProduction: () => boolean;
-  };
-  devTools: {
-    open: () => Promise<{ success: boolean; error?: string }>;
   };
   extensions: {
     get1PasswordStatus: () => Promise<{

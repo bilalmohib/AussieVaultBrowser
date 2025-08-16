@@ -163,10 +163,18 @@ export class SharePointService {
         // Get SharePoint base URL from environment
         let sharepointBaseUrl = '';
         try {
-          if (typeof window !== 'undefined' && window.secureBrowser?.system?.getEnvironment) {
-            const envString = await window.secureBrowser.system.getEnvironment();
-            const envVars = JSON.parse(envString);
-            sharepointBaseUrl = envVars.SHAREPOINT_BASE_URL || '';
+          // Use the config-manager to get the SharePoint base URL
+          // This will check both environment_variables and system_settings as appropriate
+          const { getConfig } = await import('../utils/config-manager');
+          sharepointBaseUrl = await getConfig('SHAREPOINT_BASE_URL', '');
+          
+          if (!sharepointBaseUrl) {
+            // Fallback to direct environment access if config-manager fails
+            if (typeof window !== 'undefined' && window.secureBrowser?.system?.getEnvironment) {
+              const envString = await window.secureBrowser.system.getEnvironment();
+              const envVars = JSON.parse(envString);
+              sharepointBaseUrl = envVars.SHAREPOINT_BASE_URL || '';
+            }
           }
         } catch (error) {
           console.warn('Failed to get SHAREPOINT_BASE_URL from environment:', error);

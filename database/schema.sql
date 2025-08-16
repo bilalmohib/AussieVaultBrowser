@@ -335,14 +335,6 @@ INSERT INTO environment_variables (key, value, category, description, is_editabl
 ('LOG_LEVEL', 'info', 'logging', 'Application logging level', true),
 ('LOG_FILE_PATH', './logs/app.log', 'logging', 'Path to log file', true);
 
--- System settings
-INSERT INTO environment_variables (key, value, category, description, is_editable) VALUES
-('DIGITAL_OCEAN_PASSWORD', 'B^BEqm4b9fRgU$3', 'system', 'Digital Ocean password', true);
-
--- GitHub integration
-INSERT INTO environment_variables (key, value, category, description, is_editable) VALUES
-('GITHUB_TOKEN', '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', 'integration', 'GitHub access token', true);
-
 -- MSAL credentials
 INSERT INTO environment_variables (key, value, category, description, is_editable) VALUES
 ('MSAL_CLIENT_ID', '377bf11f-974a-4475-98f7-d0e54649f4a3', 'integration', 'Microsoft Authentication Library client ID', true),

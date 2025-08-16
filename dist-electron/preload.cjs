@@ -124,10 +124,6 @@ electron.contextBridge.exposeInMainWorld("secureBrowser", {
     isProduction: () => false
     // Will be determined by main process
   },
-  // Developer Tools
-  devTools: {
-    open: () => electron.ipcRenderer.invoke("open-dev-tools")
-  },
   // Extension Management
   extensions: {
     get1PasswordStatus: () => electron.ipcRenderer.invoke("extension-get-1password-status"),

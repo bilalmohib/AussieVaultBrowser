@@ -37,6 +37,9 @@ interface SharePointSidebarProps {
   onClose: () => void;
   onFileSelect?: (file: SharePointFile) => void;
   className?: string;
+  initialWidth?: number;
+  minWidth?: number;
+  maxWidth?: number;
 }
 
 interface DragPreviewData {
@@ -50,9 +53,14 @@ export const SharePointSidebar: React.FC<SharePointSidebarProps> = ({
   onClose,
   onFileSelect,
   className = "",
+  initialWidth = 600,
+  minWidth = 400,
+  maxWidth = 1000,
 }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [width, setWidth] = useState(initialWidth);
+  const [isDragging, setIsDragging] = useState(false);
   const [_sites, setSites] = useState<SharePointSite[]>([]);
   const [selectedSite, setSelectedSite] = useState<SharePointSite | null>(null);
   const [selectedDrive, setSelectedDrive] = useState<SharePointDrive | null>(
@@ -73,6 +81,7 @@ export const SharePointSidebar: React.FC<SharePointSidebarProps> = ({
   );
 
   const sidebarRef = useRef<HTMLDivElement>(null);
+  const resizeHandleRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Initialize SharePoint service
@@ -111,6 +120,39 @@ export const SharePointSidebar: React.FC<SharePointSidebarProps> = ({
       }, 300);
     }
   }, [isOpen]);
+
+  // Handle resize events
+  const handleResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+    document.addEventListener('mousemove', handleResize as unknown as EventListener);
+    document.addEventListener('mouseup', handleResizeEnd as unknown as EventListener);
+  };
+
+  const handleResize = useCallback((e: globalThis.MouseEvent) => {
+    if (isDragging) {
+      const windowWidth = window.innerWidth;
+      const newWidth = windowWidth - e.clientX;
+      
+      // Constrain within min/max width
+      const constrainedWidth = Math.min(Math.max(newWidth, minWidth), maxWidth);
+      setWidth(constrainedWidth);
+    }
+  }, [isDragging, minWidth, maxWidth]);
+
+  const handleResizeEnd = useCallback(() => {
+    setIsDragging(false);
+    document.removeEventListener('mousemove', handleResize as unknown as EventListener);
+    document.removeEventListener('mouseup', handleResizeEnd as unknown as EventListener);
+  }, [handleResize]);
+
+  // Clean up event listeners
+  useEffect(() => {
+    return () => {
+      document.removeEventListener('mousemove', handleResize as unknown as EventListener);
+      document.removeEventListener('mouseup', handleResizeEnd as unknown as EventListener);
+    };
+  }, [handleResize, handleResizeEnd]);
 
   const loadSites = async () => {
     try {
@@ -218,7 +260,20 @@ export const SharePointSidebar: React.FC<SharePointSidebarProps> = ({
             )
         );
 
-        const blob = await sharepointService.downloadFile(file.downloadUrl);
+        // Force download as binary blob using fetch API with proper headers
+        const response = await fetch(file.downloadUrl, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/octet-stream',
+          },
+          credentials: 'include',
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Failed to download file: ${response.status} ${response.statusText}`);
+        }
+        
+        const blob = await response.blob();
 
         // Update with ready state
         setDragPreviews(
@@ -235,7 +290,7 @@ export const SharePointSidebar: React.FC<SharePointSidebarProps> = ({
         console.log(
           `✅ Pre-loaded ${file.name} (${sharepointService.formatFileSize(
             blob.size
-          )})`
+          )}) - Type: ${blob.type}`
         );
       } catch (error) {
         console.error(`❌ Failed to pre-load ${file.name}:`, error);
@@ -270,41 +325,95 @@ export const SharePointSidebar: React.FC<SharePointSidebarProps> = ({
 
       if (cachedData?.isReady && cachedData.blob) {
         try {
-          // Create File object from cached blob
+          // Determine the correct MIME type
+          const fileExtension = file.name.split('.').pop()?.toLowerCase();
+          let mimeType = cachedData.blob.type || "application/octet-stream";
+          
+          // If blob doesn't have a type, try to determine based on extension
+          if (mimeType === "application/octet-stream" || mimeType === "") {
+            if (fileExtension === "pdf") mimeType = "application/pdf";
+            else if (["png", "jpg", "jpeg", "gif"].includes(fileExtension || "")) {
+              mimeType = `image/${fileExtension}`;
+            }
+            else if (["docx", "doc"].includes(fileExtension || "")) {
+              mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            }
+            // Add more mime types as needed
+          }
+          
+          console.log(`📎 File MIME type: ${mimeType}`);
+
+          // Create File object from cached blob with proper type
           const fileObject = new window.File(
             [cachedData.blob],
             file.name,
-            cachedData.blob.type
-              ? { type: cachedData.blob.type }
-              : { type: "application/octet-stream" }
+            { type: mimeType }
           );
 
-          // Add to drag operation
+          // Clear any existing data in the dataTransfer
+          if (e.dataTransfer.items && e.dataTransfer.items.clear) {
+            e.dataTransfer.items.clear();
+          }
+
+          // Method 1: Use DataTransfer.items.add
           if (
             e.dataTransfer.items &&
             typeof e.dataTransfer.items.add === "function"
           ) {
-            e.dataTransfer.items.add(fileObject as File);
-          } else {
-            // Fallback: set as URL if File constructor or .add is not supported
-            e.dataTransfer.setData("text/plain", file.name);
-            if (file.downloadUrl) {
-              e.dataTransfer.setData("text/uri-list", file.downloadUrl);
+            e.dataTransfer.items.add(fileObject);
+            console.log(`✅ File added to drag via items.add(): ${file.name}`);
+          } 
+          // Method 2: Set as a DataTransfer file
+          else if (e.dataTransfer.files && "length" in e.dataTransfer.files) {
+            // This is a hack using the internal __proto__ to modify files collection
+            // It's not ideal but sometimes necessary for browser compatibility
+            try {
+              const dt = e.dataTransfer;
+              const fileList = dt.files;
+              const dataTransferItemsList = fileList as unknown as DataTransferItemList;
+              if (dataTransferItemsList) {
+                Object.defineProperty(dataTransferItemsList, '0', {
+                  value: fileObject,
+                  writable: false
+                });
+                Object.defineProperty(dataTransferItemsList, 'length', {
+                  value: 1,
+                  writable: false
+                });
+                console.log(`✅ File added to drag via files collection: ${file.name}`);
+              }
+            } catch (err) {
+              console.error("Failed to set file in dataTransfer.files", err);
             }
           }
-          e.dataTransfer.effectAllowed = "copy";
+          
+          // Backup method: Use DownloadURL format which some sites recognize
+          e.dataTransfer.setData(
+            "DownloadURL",
+            `${mimeType}:${file.name}:${file.downloadUrl || ''}`
+          );
 
-          console.log(`✅ Real file added to drag: ${file.name}`);
+          // Add URL alternatives (helpful for some sites)
+          e.dataTransfer.setData("text/uri-list", file.downloadUrl || '');
+          e.dataTransfer.setData("text/plain", file.name);
+          
+          e.dataTransfer.effectAllowed = "copy";
+          
+          console.log(`✅ Enhanced drag support configured for: ${file.name}`);
         } catch (error) {
           console.error(`❌ Error adding file to drag:`, error);
-          // Fallback to URL
+          // Fallback to URL-based drag
           e.dataTransfer.setData("text/plain", file.name);
           if (file.downloadUrl) {
             e.dataTransfer.setData("text/uri-list", file.downloadUrl);
+            e.dataTransfer.setData(
+              "DownloadURL",
+              `application/octet-stream:${file.name}:${file.downloadUrl}`
+            );
           }
         }
       } else {
-        console.log(`⚠️ Using URL fallback for ${file.name}`);
+        console.log(`⚠️ No preloaded data available for ${file.name}, using URL fallback`);
         // Fallback to URL-based drag
         e.dataTransfer.setData("text/plain", file.name);
         if (file.downloadUrl) {
@@ -314,11 +423,16 @@ export const SharePointSidebar: React.FC<SharePointSidebarProps> = ({
             `application/octet-stream:${file.name}:${file.downloadUrl}`
           );
         }
+        
+        // If we don't have the blob yet, try to preload it now
+        if (file.downloadUrl && !dragPreviews.has(file.id)) {
+          preloadFileForDrag(file);
+        }
       }
 
       e.dataTransfer.effectAllowed = "copy";
     },
-    [dragPreviews]
+    [dragPreviews, preloadFileForDrag]
   );
 
   const handleDragEnd = useCallback(
@@ -332,6 +446,37 @@ export const SharePointSidebar: React.FC<SharePointSidebarProps> = ({
         e.dataTransfer.dropEffect === "move"
       ) {
         console.log(`✅ File ${file.name} dropped successfully!`);
+        
+        // Show success indicator
+        if (sidebarRef.current) {
+          const successIndicator = document.createElement('div');
+          successIndicator.textContent = `✓ ${file.name} dropped`;
+          successIndicator.style.position = 'absolute';
+          successIndicator.style.bottom = '60px';
+          successIndicator.style.left = '50%';
+          successIndicator.style.transform = 'translateX(-50%)';
+          successIndicator.style.background = '#10B981';
+          successIndicator.style.color = 'white';
+          successIndicator.style.padding = '8px 12px';
+          successIndicator.style.borderRadius = '4px';
+          successIndicator.style.fontSize = '14px';
+          successIndicator.style.zIndex = '100';
+          successIndicator.style.boxShadow = '0 2px 5px rgba(0,0,0,0.2)';
+          
+          sidebarRef.current.appendChild(successIndicator);
+          
+          setTimeout(() => {
+            if (sidebarRef.current && sidebarRef.current.contains(successIndicator)) {
+              successIndicator.style.opacity = '0';
+              successIndicator.style.transition = 'opacity 0.5s';
+              setTimeout(() => {
+                if (sidebarRef.current && sidebarRef.current.contains(successIndicator)) {
+                  sidebarRef.current.removeChild(successIndicator);
+                }
+              }, 500);
+            }
+          }, 2000);
+        }
       }
     },
     []
@@ -352,7 +497,8 @@ export const SharePointSidebar: React.FC<SharePointSidebarProps> = ({
         key={file.id}
         className={cn(
           "group flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-all duration-200 cursor-pointer border border-transparent hover:border-gray-200 dark:hover:border-gray-700",
-          file.isFolder && "hover:bg-blue-50 dark:hover:bg-blue-900/20"
+          file.isFolder && "hover:bg-blue-50 dark:hover:bg-blue-900/20",
+          !file.isFolder && isReady && "hover:shadow-md hover:border-blue-300 dark:hover:border-blue-700"
         )}
         draggable={!file.isFolder}
         onMouseEnter={() => !file.isFolder && preloadFileForDrag(file)}
@@ -365,6 +511,7 @@ export const SharePointSidebar: React.FC<SharePointSidebarProps> = ({
             onFileSelect?.(file);
           }
         }}
+        title={!file.isFolder && isReady ? "Drag this file to upload it to a website" : undefined}
       >
         <div className="flex-shrink-0 text-2xl">
           {sharepointService.getFileIcon(file)}
@@ -521,19 +668,42 @@ export const SharePointSidebar: React.FC<SharePointSidebarProps> = ({
     <div className="fixed inset-0 z-50 flex">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/20 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/10"
         onClick={onClose}
       />
 
       {/* Sidebar */}
       <div
         ref={sidebarRef}
+        style={{ width: `${width}px` }}
         className={cn(
-          "relative ml-auto w-[70%] h-full bg-white dark:bg-gray-900 shadow-2xl transform transition-transform duration-300 ease-out",
+          "relative ml-auto h-full bg-white dark:bg-gray-900 shadow-2xl transform transition-all duration-300 ease-out",
           isOpen ? "translate-x-0" : "translate-x-full",
+          isDragging ? "transition-none" : "",
           className
         )}
       >
+        {/* Resize Handle */}
+        <div
+          ref={resizeHandleRef}
+          className={cn(
+            "absolute left-0 top-0 bottom-0 w-4 cursor-ew-resize bg-transparent flex items-center justify-center z-10",
+            isDragging ? "bg-blue-500/30" : "hover:bg-blue-500/20"
+          )}
+          onMouseDown={handleResizeStart}
+          title="Drag to resize panel width"
+        >
+          <div className={cn(
+            "h-16 w-1 rounded-full transition-colors", 
+            isDragging ? "bg-blue-500" : "bg-gray-300 dark:bg-gray-700"
+          )}/>
+          
+          {isDragging && (
+            <div className="absolute top-1/2 left-6 transform -translate-y-1/2 bg-blue-500 text-white text-xs px-2 py-1 rounded shadow-md">
+              {width}px
+            </div>
+          )}
+        </div>
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-600 to-blue-700 text-white">
           <div className="flex items-center gap-3">

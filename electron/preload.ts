@@ -141,6 +141,8 @@ contextBridge.exposeInMainWorld("secureBrowser", {
     // Start native drag (must be called synchronously from dragstart)
     startDrag: (filePath: string) =>
       ipcRenderer.send("sharepoint-start-drag", { filePath }),
+    fetchBinary: (url: string) =>
+      ipcRenderer.invoke("sharepoint-fetch-binary", { url }),
   },
 
   // System Information
@@ -305,6 +307,14 @@ export interface SecureBrowserAPI {
       filename: string;
     }) => Promise<{ success: boolean; path?: string; error?: string }>;
     startDrag: (filePath: string) => void;
+    fetchBinary: (
+      url: string
+    ) => Promise<{
+      success: boolean;
+      data?: string;
+      contentType?: string;
+      error?: string;
+    }>;
   };
   system: {
     getVersion: () => Promise<string>;

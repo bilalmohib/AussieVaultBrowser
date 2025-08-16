@@ -117,7 +117,8 @@ electron.contextBridge.exposeInMainWorld("secureBrowser", {
     // Prepare temporary file for native drag
     prepareTempFile: (options) => electron.ipcRenderer.invoke("sharepoint-prepare-temp-file", options),
     // Start native drag (must be called synchronously from dragstart)
-    startDrag: (filePath) => electron.ipcRenderer.send("sharepoint-start-drag", { filePath })
+    startDrag: (filePath) => electron.ipcRenderer.send("sharepoint-start-drag", { filePath }),
+    fetchBinary: (url) => electron.ipcRenderer.invoke("sharepoint-fetch-binary", { url })
   },
   // System Information
   system: {

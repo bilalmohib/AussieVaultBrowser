@@ -307,39 +307,34 @@ export const SharePointSidebar: React.FC<SharePointSidebarProps> = ({
         while (!blob && attempts < maxAttempts) {
           attempts++;
           try {
-            let response;
-
-            // First attempt: Try with fetch API and proper binary headers
-            if (attempts === 1) {
+            const api: any =
+              (window as any).secureBrowser?.sharepoint ||
+              (window as any).electronAPI?.sharepoint;
+            if (api?.fetchBinary) {
               console.log(
-                `🔄 Download attempt ${attempts}: Using fetch with binary headers`
+                `🔄 Download attempt ${attempts}: main-process fetchBinary`
               );
-              response = await fetch(file.downloadUrl, {
+              const res = await api.fetchBinary(file.downloadUrl);
+              if (!res?.success) throw new Error(res?.error || "Fetch failed");
+              const binary = atob(res.data as string);
+              const len = binary.length;
+              const bytes = new Uint8Array(len);
+              for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+              blob = new Blob([bytes], {
+                type:
+                  res.contentType || sharepointService.getMimeType(file.name),
+              });
+            } else {
+              console.log(
+                `🔄 Download attempt ${attempts}: renderer fetch (fallback)`
+              );
+              const response = await fetch(file.downloadUrl, {
                 method: "GET",
-                headers: {
-                  Accept: "application/octet-stream",
-                  "Cache-Control": "no-cache",
-                },
                 credentials: "include",
               });
+              if (!response.ok) throw new Error(`HTTP ${response.status}`);
+              blob = await response.blob();
             }
-            // Second attempt: Try with different headers
-            else {
-              console.log(
-                `🔄 Download attempt ${attempts}: Using alternative approach`
-              );
-              response = await fetch(file.downloadUrl, {
-                method: "GET",
-                cache: "no-store",
-                credentials: "include",
-              });
-            }
-
-            if (!response.ok) {
-              throw new Error(`HTTP error ${response.status}`);
-            }
-
-            blob = await response.blob();
 
             // Validate the blob content
             if (blob.size === 0) {

@@ -23,7 +23,26 @@ export const FileViewerModal: React.FC<Props> = ({
       setError(null);
       setObjectUrl(null);
       try {
-        // Try to fetch the file for embedding (handles auth cookies via include)
+        // Prefer Electron main-process fetch to bypass CORS
+        const sp: any =
+          (window as any).secureBrowser?.sharepoint ||
+          (window as any).electronAPI?.sharepoint;
+        if (sp?.fetchBinary) {
+          const res = await sp.fetchBinary(url);
+          if (!res?.success) throw new Error(res?.error || "Fetch failed");
+          const binary = atob(res.data as string);
+          const len = binary.length;
+          const bytes = new Uint8Array(len);
+          for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+          const blob = new Blob([bytes], {
+            type: res.contentType || "application/octet-stream",
+          });
+          const obj = URL.createObjectURL(blob);
+          if (!revoked) setObjectUrl(obj);
+          return;
+        }
+
+        // Fallback to renderer fetch (may hit CORS in dev)
         const resp = await fetch(url, { credentials: "include" });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const blob = await resp.blob();

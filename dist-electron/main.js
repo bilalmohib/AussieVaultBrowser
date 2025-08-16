@@ -1,4 +1,4 @@
-import require$$3$1, { app, ipcMain, BrowserWindow, shell, session, Menu } from "electron";
+import require$$3$1, { app, ipcMain, BrowserWindow, shell, session, Menu, net } from "electron";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import require$$1$2, { spawn } from "child_process";
@@ -517,8 +517,8 @@ function requireNode() {
           break;
         case "PIPE":
         case "TCP":
-          var net = require$$4;
-          stream2 = new net.Socket({
+          var net2 = require$$4;
+          stream2 = new net2.Socket({
             fd: fd2,
             readable: false,
             writable: true
@@ -14889,6 +14889,39 @@ process.on("SIGINT", () => {
 process.on("SIGTERM", () => {
   app.quit();
 });
+ipcMain.handle(
+  "sharepoint-fetch-binary",
+  async (_event, { url }) => {
+    return new Promise((resolve) => {
+      try {
+        const request = net.request({ url, session: session.defaultSession });
+        const chunks = [];
+        let contentType;
+        request.on("response", (response) => {
+          var _a;
+          contentType = (_a = response.headers["content-type"]) == null ? void 0 : _a[0];
+          response.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+          response.on("end", () => {
+            const buf = Buffer.concat(chunks);
+            resolve({
+              success: true,
+              data: buf.toString("base64"),
+              contentType: contentType || "application/octet-stream"
+            });
+          });
+        });
+        request.on("error", (err) => {
+          console.error("❌ sharepoint-fetch-binary error:", err);
+          resolve({ success: false, error: (err == null ? void 0 : err.message) || "Request failed" });
+        });
+        request.end();
+      } catch (error) {
+        console.error("❌ sharepoint-fetch-binary threw:", error);
+        resolve({ success: false, error: (error == null ? void 0 : error.message) || "Unknown error" });
+      }
+    });
+  }
+);
 app.setAsDefaultProtocolClient("aussievault");
 const exchangeCodeForToken = async (code) => {
   const codeVerifier = global.pkceCodeVerifier;

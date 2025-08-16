@@ -1,4 +1,12 @@
-import { app, BrowserWindow, session, ipcMain, Menu, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  session,
+  ipcMain,
+  Menu,
+  shell,
+  net,
+} from "electron";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { spawn, ChildProcess } from "child_process";
@@ -3253,6 +3261,44 @@ process.on("SIGTERM", () => {
 
   app.quit();
 });
+
+// ---- SharePoint CORS bypass for previews/drag ----
+// Fetch binary in main process (uses Electron net with session cookies) and return base64
+ipcMain.handle(
+  "sharepoint-fetch-binary",
+  async (_event, { url }: { url: string }) => {
+    return new Promise((resolve) => {
+      try {
+        const request = net.request({ url, session: session.defaultSession });
+        const chunks: Buffer[] = [];
+        let contentType: string | undefined;
+
+        request.on("response", (response) => {
+          contentType = response.headers["content-type"]?.[0];
+          response.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+          response.on("end", () => {
+            const buf = Buffer.concat(chunks);
+            resolve({
+              success: true,
+              data: buf.toString("base64"),
+              contentType: contentType || "application/octet-stream",
+            });
+          });
+        });
+
+        request.on("error", (err) => {
+          console.error("❌ sharepoint-fetch-binary error:", err);
+          resolve({ success: false, error: err?.message || "Request failed" });
+        });
+
+        request.end();
+      } catch (error: any) {
+        console.error("❌ sharepoint-fetch-binary threw:", error);
+        resolve({ success: false, error: error?.message || "Unknown error" });
+      }
+    });
+  }
+);
 
 app.setAsDefaultProtocolClient("aussievault");
 const exchangeCodeForToken = async (code: string) => {

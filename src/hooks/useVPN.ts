@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from "react";
 
 type VPNStatus = "connected" | "connecting" | "disconnected" | "failed";
 
@@ -29,8 +29,16 @@ interface ElectronAPI {
     showItemInFolder: (path: string) => Promise<string | null>;
   };
   downloads: {
-    chooseLocal: (downloadId: string) => Promise<{ success: boolean; error?: string }>;
-    chooseMeta: (downloadId: string) => Promise<{ success: boolean; error?: string }>;
+    chooseLocal: (
+      downloadId: string
+    ) => Promise<{ success: boolean; error?: string }>;
+    chooseMeta: (
+      downloadId: string
+    ) => Promise<{ success: boolean; error?: string }>;
+    startByUrl?: (
+      url: string,
+      suggestedFilename?: string
+    ) => Promise<{ success: boolean; error?: string }>;
   };
   metaStorage: {
     getStatus: () => Promise<{
@@ -56,42 +64,46 @@ declare global {
 }
 
 // Function to check actual IP geolocation - uses REAL Electron main process API
-const checkIPGeolocation = async (): Promise<{ country: string; ip: string; isAustralia: boolean }> => {
+const checkIPGeolocation = async (): Promise<{
+  country: string;
+  ip: string;
+  isAustralia: boolean;
+}> => {
   try {
     // Use the real Electron API for IP checking
     if (window.electronAPI?.vpn?.checkIP) {
       try {
         // console.log('🔍 Making REAL IP geolocation check...');
         const result = await window.electronAPI.vpn.checkIP();
-        
-        return { 
-          country: result.countryName, 
-          ip: result.ip, 
-          isAustralia: result.isAustralia 
+
+        return {
+          country: result.countryName,
+          ip: result.ip,
+          isAustralia: result.isAustralia,
         };
       } catch (error) {
         // console.warn('⚠️ Real IP check failed:', error);
-        return { 
-          country: 'Unknown', 
-          ip: 'Failed to check', 
-          isAustralia: false
+        return {
+          country: "Unknown",
+          ip: "Failed to check",
+          isAustralia: false,
         };
       }
     }
-    
+
     // Fallback if Electron API is not available
     // console.warn('⚠️ Electron API not available for IP checking');
-    return { 
-      country: 'API Unavailable', 
-      ip: 'Unknown', 
-      isAustralia: false 
+    return {
+      country: "API Unavailable",
+      ip: "Unknown",
+      isAustralia: false,
     };
   } catch (error) {
     // console.warn('⚠️ IP check failed:', error);
-    return { 
-      country: 'Error', 
-      ip: 'Failed', 
-      isAustralia: false 
+    return {
+      country: "Error",
+      ip: "Failed",
+      isAustralia: false,
     };
   }
 };
@@ -100,15 +112,15 @@ export const useVPN = (userAccessLevel?: number, enabled: boolean = true) => {
   const [vpnStatus, setVpnStatus] = useState<VPNStatus>("disconnected");
   const [connection, setConnection] = useState<VPNConnection>({
     endpoint: "au-sydney-01.vpn.provider.com",
-    location: "Sydney, Australia"
+    location: "Sydney, Australia",
   });
   const [retryCount, setRetryCount] = useState(0);
   const [lastError, setLastError] = useState<string | null>(null);
   const [isCheckingStatus, setIsCheckingStatus] = useState(true); // Start as checking
   const [autoReconnectAttempts, setAutoReconnectAttempts] = useState(0);
   const [isAutoReconnecting, setIsAutoReconnecting] = useState(false);
-  const [actualIP, setActualIP] = useState<string>('');
-  const [actualCountry, setActualCountry] = useState<string>('');
+  const [actualIP, setActualIP] = useState<string>("");
+  const [actualCountry, setActualCountry] = useState<string>("");
   const [ipVerified, setIPVerified] = useState<boolean>(false);
 
   const connectVPN = async (): Promise<void> => {
@@ -116,11 +128,11 @@ export const useVPN = (userAccessLevel?: number, enabled: boolean = true) => {
     setVpnStatus("connecting");
     setLastError(null);
     setIsAutoReconnecting(false);
-    
+
     try {
       // console.log("🔌 Fast VPN connection attempt...");
-      const success = await window.electronAPI?.vpn?.connect('wireguard');
-      
+      const success = await window.electronAPI?.vpn?.connect("wireguard");
+
       if (success) {
         setVpnStatus("connected");
         setRetryCount(0);
@@ -128,15 +140,15 @@ export const useVPN = (userAccessLevel?: number, enabled: boolean = true) => {
         // console.log("✅ VPN Connected successfully - browsing enabled");
 
         // Do IP check in background for display info
-        checkIPGeolocation().then(ipInfo => {
+        checkIPGeolocation().then((ipInfo) => {
           setActualIP(ipInfo.ip);
           setActualCountry(ipInfo.country);
           setIPVerified(ipInfo.isAustralia);
-          
-          setConnection(prev => ({
+
+          setConnection((prev) => ({
             ...prev,
             ipAddress: ipInfo.ip,
-            latency: Math.floor(Math.random() * 30) + 15
+            latency: Math.floor(Math.random() * 30) + 15,
           }));
         });
       } else {
@@ -155,26 +167,26 @@ export const useVPN = (userAccessLevel?: number, enabled: boolean = true) => {
     setVpnStatus("disconnected");
     setAutoReconnectAttempts(0);
     setIsAutoReconnecting(false);
-    setConnection(prev => ({
+    setConnection((prev) => ({
       ...prev,
       ipAddress: undefined,
-      latency: undefined
+      latency: undefined,
     }));
   };
 
   // Auto-reconnect function
   const autoReconnectVPN = useCallback(async (): Promise<void> => {
-    setIsAutoReconnecting(prev => {
+    setIsAutoReconnecting((prev) => {
       if (prev) return prev; // Already reconnecting
       return true;
     });
-    
-    setAutoReconnectAttempts(prev => prev + 1);
+
+    setAutoReconnectAttempts((prev) => prev + 1);
 
     try {
       // Use IPC to connect VPN via main process
-      const success = await window.electronAPI?.vpn?.connect('wireguard');
-      
+      const success = await window.electronAPI?.vpn?.connect("wireguard");
+
       if (success) {
         setVpnStatus("connected");
         setRetryCount(0);
@@ -182,19 +194,19 @@ export const useVPN = (userAccessLevel?: number, enabled: boolean = true) => {
         setIsAutoReconnecting(false);
 
         // Update connection info
-        setConnection(prev => ({
+        setConnection((prev) => ({
           ...prev,
           ipAddress: "134.199.169.102",
-          latency: Math.floor(Math.random() * 30) + 15
+          latency: Math.floor(Math.random() * 30) + 15,
         }));
       } else {
         throw new Error("Auto-reconnection failed");
       }
     } catch (error) {
       setIsAutoReconnecting(false);
-      
+
       // Use functional update to avoid dependency
-      setAutoReconnectAttempts(prev => {
+      setAutoReconnectAttempts((prev) => {
         if (prev >= 5) {
           setVpnStatus("failed");
           setLastError("Auto-reconnection failed after multiple attempts");
@@ -211,50 +223,51 @@ export const useVPN = (userAccessLevel?: number, enabled: boolean = true) => {
     try {
       // Check WireGuard status first (faster and more reliable)
       const status = await window.electronAPI?.vpn?.getStatus();
-      
-      if (status === 'connected') {
+
+      if (status === "connected") {
         // If WireGuard says connected, trust it immediately for speed
         setVpnStatus("connected");
         setLastError(null);
         setAutoReconnectAttempts(0);
         setIsAutoReconnecting(false);
-        
+
         // Do IP check in background (non-blocking for speed)
-        checkIPGeolocation().then(ipInfo => {
+        checkIPGeolocation().then((ipInfo) => {
           setActualIP(ipInfo.ip);
           setActualCountry(ipInfo.country);
           setIPVerified(ipInfo.isAustralia);
-          
+
           // Update connection info with actual IP
-          setConnection(prev => ({
+          setConnection((prev) => ({
             ...prev,
             ipAddress: ipInfo.ip,
-            latency: Math.floor(Math.random() * 30) + 15
+            latency: Math.floor(Math.random() * 30) + 15,
           }));
         });
-        
+
         return;
       }
-      
+
       // If not connected, check IP location to confirm
       const ipInfo = await checkIPGeolocation();
       setActualIP(ipInfo.ip);
       setActualCountry(ipInfo.country);
       setIPVerified(ipInfo.isAustralia);
-      
-      if (status === 'disconnected' || !ipInfo.isAustralia) {
+
+      if (status === "disconnected" || !ipInfo.isAustralia) {
         setVpnStatus("disconnected");
-        setLastError(ipInfo.isAustralia ? 
-          "WireGuard VPN disconnected" : 
-          `Not connected to Australian VPN. Current location: ${ipInfo.country}`);
-        
-        setConnection(prev => ({
+        setLastError(
+          ipInfo.isAustralia
+            ? "WireGuard VPN disconnected"
+            : `Not connected to Australian VPN. Current location: ${ipInfo.country}`
+        );
+
+        setConnection((prev) => ({
           ...prev,
           ipAddress: ipInfo.ip,
-          latency: undefined
+          latency: undefined,
         }));
-        
-      } else if (status === 'connecting') {
+      } else if (status === "connecting") {
         setVpnStatus("connecting");
       } else {
         setVpnStatus("failed");
@@ -278,7 +291,7 @@ export const useVPN = (userAccessLevel?: number, enabled: boolean = true) => {
 
     const checkInitialStatus = async () => {
       if (!mounted) return;
-      
+
       try {
         // Quick check if electronAPI is ready
         if (!window.electronAPI?.vpn?.getStatus) {
@@ -294,28 +307,27 @@ export const useVPN = (userAccessLevel?: number, enabled: boolean = true) => {
 
         // Prioritize WireGuard status for speed
         const status = await window.electronAPI?.vpn?.getStatus();
-        
-        if (status === 'connected') {
+
+        if (status === "connected") {
           // Allow browsing immediately if WireGuard is connected
           setVpnStatus("connected");
           setLastError(null);
           setIsCheckingStatus(false);
-          
+
           // Single IP check for display purposes
           const ipInfo = await checkIPGeolocation();
           setActualIP(ipInfo.ip);
           setActualCountry(ipInfo.country);
           setIPVerified(ipInfo.isAustralia);
-          
-          setConnection(prev => ({
+
+          setConnection((prev) => ({
             ...prev,
             ipAddress: ipInfo.ip,
-            latency: Math.floor(Math.random() * 30) + 15
+            latency: Math.floor(Math.random() * 30) + 15,
           }));
-          
-        } else if (status === 'connecting') {
+        } else if (status === "connecting") {
           setVpnStatus("connecting");
-          
+
           // Only retry if within limits
           if (currentRetry < maxRetries) {
             currentRetry++;
@@ -330,16 +342,16 @@ export const useVPN = (userAccessLevel?: number, enabled: boolean = true) => {
           setVpnStatus("disconnected");
           setLastError("WireGuard VPN not connected");
           setIsCheckingStatus(false);
-          
+
           const ipInfo = await checkIPGeolocation();
           setActualIP(ipInfo.ip);
           setActualCountry(ipInfo.country);
           setIPVerified(ipInfo.isAustralia);
-          
-          setConnection(prev => ({
+
+          setConnection((prev) => ({
             ...prev,
             ipAddress: ipInfo.ip,
-            latency: undefined
+            latency: undefined,
           }));
         }
       } catch (error) {
@@ -380,7 +392,13 @@ export const useVPN = (userAccessLevel?: number, enabled: boolean = true) => {
 
       return () => clearTimeout(autoReconnectTimeout);
     }
-  }, [vpnStatus, enabled, autoReconnectAttempts, isAutoReconnecting, autoReconnectVPN]);
+  }, [
+    vpnStatus,
+    enabled,
+    autoReconnectAttempts,
+    isAutoReconnecting,
+    autoReconnectVPN,
+  ]);
 
   return {
     vpnStatus,
@@ -402,4 +420,4 @@ export const useVPN = (userAccessLevel?: number, enabled: boolean = true) => {
     // Allow browsing if WireGuard is connected OR if user has Level 3 access (unrestricted)
     allowBrowsing: vpnStatus === "connected" || userAccessLevel === 3,
   };
-}; 
+};

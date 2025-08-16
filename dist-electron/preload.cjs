@@ -44,7 +44,9 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   // Download Management
   downloads: {
     chooseLocal: (downloadId) => electron.ipcRenderer.invoke("download-choose-local", downloadId),
-    chooseMeta: (downloadId) => electron.ipcRenderer.invoke("download-choose-meta", downloadId)
+    chooseMeta: (downloadId) => electron.ipcRenderer.invoke("download-choose-meta", downloadId),
+    // Start a download by URL so it goes through Electron's will-download flow
+    startByUrl: (url, suggestedFilename) => electron.ipcRenderer.invoke("download-start-by-url", { url, suggestedFilename })
   },
   // Event listeners for download events
   on: (channel, func) => {

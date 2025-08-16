@@ -11,7 +11,10 @@ import fetch from "node-fetch";
 import crypto from "crypto";
 
 // Import environment service
-import { initEnvironmentService, getAllEnvVars } from './services/environment-service';
+import {
+  initEnvironmentService,
+  getAllEnvVars,
+} from "./services/environment-service";
 
 // PKCE utility functions
 function base64URLEncode(str: Buffer) {
@@ -136,6 +139,9 @@ const pendingDownloads = new Map<
   string,
   { item: any; resolve: Function; reject: Function }
 >();
+
+// Map of URLs that should bypass choice and download locally (timestamp expiry)
+const autoLocalByUrl = new Map<string, number>();
 
 // VPN status tracking
 const updateVPNStatus = (connected: boolean): void => {
@@ -399,7 +405,8 @@ const checkCurrentIP = async (): Promise<boolean> => {
         if (!response.ok) throw new Error("bad response");
         const data = await response.json();
         const ip = data.ip || data.query || "";
-        const country = data.country || data.country_name || data.countryCode || "";
+        const country =
+          data.country || data.country_name || data.countryCode || "";
         const region = data.region || data.regionName || "";
         const city = data.city || "";
         return { ip, country, region, city };
@@ -448,7 +455,6 @@ const checkCurrentIP = async (): Promise<boolean> => {
     "⚠️  Unable to verify Australian IP - SECURITY MEASURE ACTIVATED"
   );
   return false;
-
 };
 
 // Note: testVPNConnectivity function removed - ping connectivity is NOT a reliable VPN indicator
@@ -822,8 +828,6 @@ const configureSecureSession = (): void => {
       return;
     }
 
-
-
     // Block everything else
     console.log("🚫 WEBVIEW: BLOCKING unknown protocol request:", details.url);
     callback({ cancel: true });
@@ -932,6 +936,20 @@ const configureSecureSession = (): void => {
     // PAUSE the download to show user options
     event.preventDefault();
 
+    // If this URL is flagged for auto local download, bypass choice
+    try {
+      const url = item.getURL();
+      const expiry = autoLocalByUrl.get(url);
+      if (expiry && expiry > Date.now()) {
+        // Ensure we don't show choice for this item
+        autoLocalByUrl.delete(url);
+        await handleLocalDownload(downloadId, item);
+        return;
+      }
+    } catch (e) {
+      // Continue to normal flow if any error
+    }
+
     // Store the download item for later processing
     const downloadPromise = new Promise<"local" | "meta">((resolve, reject) => {
       pendingDownloads.set(downloadId, { item, resolve, reject });
@@ -1004,7 +1022,7 @@ const configureSecureSession = (): void => {
   const handleLocalDownload = async (downloadId: string, item: any) => {
     return new Promise<void>((resolve) => {
       // Set the save path to the user's downloads folder
-      const downloadsPath = app.getPath('downloads');
+      const downloadsPath = app.getPath("downloads");
       const filename = item.getFilename();
       const savePath = path.join(downloadsPath, filename);
       item.setSavePath(savePath);
@@ -1752,7 +1770,7 @@ function createBrowserWindow(isMain: boolean = false): BrowserWindow {
   if (isMain || !mainWindow) {
     mainWindow = newWindow;
 
-  // Defer any VPN status checking until after renderer requests it (post-auth)
+    // Defer any VPN status checking until after renderer requests it (post-auth)
 
     // Note: Removed periodic Australian VPN verification to avoid repeated checks.
     // VPN status is verified once at startup above, and can be checked on-demand.
@@ -2478,6 +2496,43 @@ ipcMain.handle("meta-storage-get-status", async () => {
   };
 });
 
+// Allow renderer to initiate a download by URL so it flows through will-download
+ipcMain.handle(
+  "download-start-by-url",
+  async (event, args: { url: string; suggestedFilename?: string }) => {
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (!win || win.isDestroyed()) {
+        return { success: false, error: "No active window" };
+      }
+
+      // Mark this URL to auto-download locally (avoid choice dialog)
+      const ttlMs = 15000; // 15 seconds window
+      autoLocalByUrl.set(args.url, Date.now() + ttlMs);
+      // Cleanup after TTL
+      setTimeout(() => {
+        const expiry = autoLocalByUrl.get(args.url);
+        if (expiry && expiry <= Date.now()) autoLocalByUrl.delete(args.url);
+      }, ttlMs + 1000);
+
+      // Optional: suggest a filename via a header when possible; Electron mainly uses the server's headers
+      // We still pass suggestedFilename through our choice event for UI context
+      if (args.suggestedFilename) {
+        // Nothing to set directly here; filename will be used in UI when will-download fires
+      }
+
+      // Trigger the download in this window/context
+      win.webContents.downloadURL(args.url);
+      return { success: true };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : "Unknown error",
+      };
+    }
+  }
+);
+
 ipcMain.handle("meta-storage-connect", async (_event, _accessToken: string) => {
   // TODO: Implement Meta storage connection
   // This would validate the access token and store it securely
@@ -2810,8 +2865,10 @@ ipcMain.handle("window-close", async (_event, windowId?: number) => {
 app.whenReady().then(async () => {
   // Initialize environment service to load settings from database
   await initEnvironmentService();
-  console.log('Environment service initialized - database variables loaded if available');
-  
+  console.log(
+    "Environment service initialized - database variables loaded if available"
+  );
+
   // 🔐 ENHANCED USER-AGENT: Use the latest Chrome User-Agent with additional security flags
   // This makes Google OAuth recognize the app as a legitimate Chrome browser
   const secureUserAgent = [

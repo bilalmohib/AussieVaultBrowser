@@ -1,4 +1,4 @@
-import require$$3$1, { app, ipcMain, shell, BrowserWindow, session, Menu } from "electron";
+import require$$3$1, { app, ipcMain, BrowserWindow, shell, session, Menu } from "electron";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import require$$1$2, { spawn } from "child_process";
@@ -12710,6 +12710,7 @@ let mainWindow = null;
 let vpnConnected = false;
 let wireguardProcess = null;
 const pendingDownloads = /* @__PURE__ */ new Map();
+const autoLocalByUrl = /* @__PURE__ */ new Map();
 const updateVPNStatus = (connected) => {
   const wasConnected = vpnConnected;
   vpnConnected = connected;
@@ -13210,6 +13211,16 @@ const configureSecureSession = () => {
     }
     const downloadId = `download_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     event.preventDefault();
+    try {
+      const url = item.getURL();
+      const expiry = autoLocalByUrl.get(url);
+      if (expiry && expiry > Date.now()) {
+        autoLocalByUrl.delete(url);
+        await handleLocalDownload(downloadId, item);
+        return;
+      }
+    } catch (e) {
+    }
     const downloadPromise = new Promise((resolve, reject) => {
       pendingDownloads.set(downloadId, { item, resolve, reject });
       setTimeout(() => {
@@ -14358,6 +14369,32 @@ ipcMain.handle("meta-storage-get-status", async () => {
     storageQuota: null
   };
 });
+ipcMain.handle(
+  "download-start-by-url",
+  async (event, args) => {
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (!win || win.isDestroyed()) {
+        return { success: false, error: "No active window" };
+      }
+      const ttlMs = 15e3;
+      autoLocalByUrl.set(args.url, Date.now() + ttlMs);
+      setTimeout(() => {
+        const expiry = autoLocalByUrl.get(args.url);
+        if (expiry && expiry <= Date.now()) autoLocalByUrl.delete(args.url);
+      }, ttlMs + 1e3);
+      if (args.suggestedFilename) {
+      }
+      win.webContents.downloadURL(args.url);
+      return { success: true };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : "Unknown error"
+      };
+    }
+  }
+);
 ipcMain.handle("meta-storage-connect", async (_event, _accessToken) => {
   console.log("🔗 Meta storage connection requested");
   await new Promise((resolve) => setTimeout(resolve, 1e3));
@@ -14612,7 +14649,9 @@ ipcMain.handle("window-close", async (_event, windowId) => {
 });
 app.whenReady().then(async () => {
   await initEnvironmentService();
-  console.log("Environment service initialized - database variables loaded if available");
+  console.log(
+    "Environment service initialized - database variables loaded if available"
+  );
   const secureUserAgent = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
     "AppleWebKit/537.36 (KHTML, like Gecko)",

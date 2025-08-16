@@ -276,17 +276,34 @@ export class SharePointService {
 
   async downloadFile(downloadUrl: string): Promise<Blob> {
     try {
-      // Download URLs from Graph API usually don't need authorization
-      // They contain a temporary access token in the URL
-      const response = await fetch(downloadUrl);
+      console.log('🔄 Downloading file from:', downloadUrl.substring(0, 50) + '...');
+      
+      // ENHANCED: Use proper headers for binary file download
+      const response = await fetch(downloadUrl, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/octet-stream',
+          'Cache-Control': 'no-cache'
+        },
+        credentials: 'include',
+        cache: 'no-store'
+      });
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      return await response.blob();
+      const blob = await response.blob();
+      console.log(`✅ File downloaded successfully: ${blob.size} bytes, type: ${blob.type || 'application/octet-stream'}`);
+      
+      // Ensure blob has content
+      if (blob.size === 0) {
+        throw new Error('Downloaded file is empty (0 bytes)');
+      }
+      
+      return blob;
     } catch (error) {
-      // console.error('❌ Error downloading file:', error);
+      console.error('❌ Error downloading file:', error);
       throw new Error(`Failed to download file: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -350,6 +367,67 @@ export class SharePointService {
 
   isServiceInitialized(): boolean {
     return this.initialized;
+  }
+
+  /**
+   * Get the appropriate MIME type for a file based on its extension
+   * This is used for drag-and-drop and downloads
+   */
+  getMimeType(fileName: string): string {
+    const extension = fileName.split('.').pop()?.toLowerCase() || '';
+    
+    // Document types
+    if (extension === 'pdf') return 'application/pdf';
+    if (extension === 'doc') return 'application/msword';
+    if (extension === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    if (extension === 'xls') return 'application/vnd.ms-excel';
+    if (extension === 'xlsx') return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    if (extension === 'ppt') return 'application/vnd.ms-powerpoint';
+    if (extension === 'pptx') return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+    if (extension === 'txt') return 'text/plain';
+    
+    // Image types
+    if (extension === 'jpg' || extension === 'jpeg') return 'image/jpeg';
+    if (extension === 'png') return 'image/png';
+    if (extension === 'gif') return 'image/gif';
+    if (extension === 'bmp') return 'image/bmp';
+    if (extension === 'svg') return 'image/svg+xml';
+    if (extension === 'webp') return 'image/webp';
+    
+    // Video types
+    if (['mp4', 'avi', 'mov', 'mkv', 'wmv'].includes(extension)) {
+      return extension === 'mp4' ? 'video/mp4' : 
+             extension === 'avi' ? 'video/x-msvideo' :
+             extension === 'mov' ? 'video/quicktime' :
+             extension === 'mkv' ? 'video/x-matroska' :
+             'video/x-ms-wmv';
+    }
+    
+    // Audio types
+    if (['mp3', 'wav', 'ogg', 'flac'].includes(extension)) {
+      return extension === 'mp3' ? 'audio/mpeg' :
+             extension === 'wav' ? 'audio/wav' :
+             extension === 'ogg' ? 'audio/ogg' :
+             'audio/flac';
+    }
+    
+    // Archive types
+    if (['zip', 'rar', '7z', 'tar', 'gz'].includes(extension)) {
+      return extension === 'zip' ? 'application/zip' :
+             extension === 'rar' ? 'application/vnd.rar' :
+             extension === '7z' ? 'application/x-7z-compressed' :
+             extension === 'tar' ? 'application/x-tar' :
+             'application/gzip';
+    }
+    
+    // Web types
+    if (extension === 'html' || extension === 'htm') return 'text/html';
+    if (extension === 'css') return 'text/css';
+    if (extension === 'js') return 'application/javascript';
+    if (extension === 'json') return 'application/json';
+    
+    // Default fallback
+    return 'application/octet-stream';
   }
 }
 

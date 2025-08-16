@@ -1003,6 +1003,12 @@ const configureSecureSession = (): void => {
   // Handle local download (original behavior)
   const handleLocalDownload = async (downloadId: string, item: any) => {
     return new Promise<void>((resolve) => {
+      // Set the save path to the user's downloads folder
+      const downloadsPath = app.getPath('downloads');
+      const filename = item.getFilename();
+      const savePath = path.join(downloadsPath, filename);
+      item.setSavePath(savePath);
+
       // Send download started event
       const downloadStartedData = {
         id: downloadId,

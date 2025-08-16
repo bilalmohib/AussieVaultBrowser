@@ -13260,6 +13260,10 @@ const configureSecureSession = () => {
   };
   const handleLocalDownload = async (downloadId, item) => {
     return new Promise((resolve) => {
+      const downloadsPath = app.getPath("downloads");
+      const filename = item.getFilename();
+      const savePath = path.join(downloadsPath, filename);
+      item.setSavePath(savePath);
       const downloadStartedData = {
         id: downloadId,
         filename: item.getFilename(),

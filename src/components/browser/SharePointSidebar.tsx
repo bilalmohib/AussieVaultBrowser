@@ -48,6 +48,9 @@ interface DragPreviewData {
   isReady: boolean;
 }
 
+// Enable debug mode to show detailed drag information
+const DEBUG_DRAG_DROP = true;
+
 export const SharePointSidebar: React.FC<SharePointSidebarProps> = ({
   isOpen,
   onClose,
@@ -235,13 +238,14 @@ export const SharePointSidebar: React.FC<SharePointSidebarProps> = ({
     setIsRefreshing(false);
   };
 
-  // Pre-load file for drag operations
+  // Pre-load file for drag operations with enhanced binary download
   const preloadFileForDrag = useCallback(
     async (file: SharePointFile) => {
       if (file.isFolder || !file.downloadUrl) return;
 
-      // Check if already cached
-      if (dragPreviews.has(file.id) && dragPreviews.get(file.id)?.isReady) {
+      // Check if already cached with valid blob
+      if (dragPreviews.has(file.id) && dragPreviews.get(file.id)?.isReady && dragPreviews.get(file.id)?.blob) {
+        console.log(`✅ Using cached file: ${file.name}`);
         return;
       }
 
@@ -260,20 +264,61 @@ export const SharePointSidebar: React.FC<SharePointSidebarProps> = ({
             )
         );
 
-        // Force download as binary blob using fetch API with proper headers
-        const response = await fetch(file.downloadUrl, {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/octet-stream',
-          },
-          credentials: 'include',
-        });
+        // CRITICAL FIX: Use more robust download approach with multiple fallbacks
+        let blob: Blob | null = null;
+        let attempts = 0;
+        const maxAttempts = 2;
         
-        if (!response.ok) {
-          throw new Error(`Failed to download file: ${response.status} ${response.statusText}`);
+        while (!blob && attempts < maxAttempts) {
+          attempts++;
+          try {
+            let response;
+            
+            // First attempt: Try with fetch API and proper binary headers
+            if (attempts === 1) {
+              console.log(`🔄 Download attempt ${attempts}: Using fetch with binary headers`);
+              response = await fetch(file.downloadUrl, {
+                method: 'GET',
+                headers: {
+                  'Accept': 'application/octet-stream',
+                  'Cache-Control': 'no-cache',
+                },
+                credentials: 'include',
+              });
+            } 
+            // Second attempt: Try with different headers
+            else {
+              console.log(`🔄 Download attempt ${attempts}: Using alternative approach`);
+              response = await fetch(file.downloadUrl, {
+                method: 'GET',
+                cache: 'no-store',
+                credentials: 'include',
+              });
+            }
+            
+            if (!response.ok) {
+              throw new Error(`HTTP error ${response.status}`);
+            }
+            
+            blob = await response.blob();
+            
+            // Validate the blob content
+            if (blob.size === 0) {
+              console.warn("Downloaded blob is empty, will retry");
+              blob = null;
+              throw new Error("Empty blob");
+            }
+            
+            console.log(`✅ Download successful: ${blob.size} bytes, type: ${blob.type}`);
+          } catch (err) {
+            console.warn(`Download attempt ${attempts} failed:`, err);
+            // Will retry if attempts < maxAttempts
+          }
         }
         
-        const blob = await response.blob();
+        if (!blob) {
+          throw new Error(`Failed to download file after ${maxAttempts} attempts`);
+        }
 
         // Update with ready state
         setDragPreviews(
@@ -288,10 +333,12 @@ export const SharePointSidebar: React.FC<SharePointSidebarProps> = ({
         );
 
         console.log(
-          `✅ Pre-loaded ${file.name} (${sharepointService.formatFileSize(
+          `✅ Successfully pre-loaded ${file.name} (${sharepointService.formatFileSize(
             blob.size
-          )}) - Type: ${blob.type}`
+          )}) - Type: ${blob.type || "application/octet-stream"}`
         );
+        
+        return blob; // Return blob for immediate use
       } catch (error) {
         console.error(`❌ Failed to pre-load ${file.name}:`, error);
 
@@ -306,129 +353,119 @@ export const SharePointSidebar: React.FC<SharePointSidebarProps> = ({
               })
             )
         );
+        
+        return null;
       }
     },
     [dragPreviews]
   );
 
-  const handleDragStart = useCallback(
-    (e: React.DragEvent, file: SharePointFile) => {
-      if (file.isFolder) {
-        e.preventDefault();
-        return;
-      }
+     const handleDragStart = useCallback(
+     (e: React.DragEvent, file: SharePointFile) => {
+       if (file.isFolder) {
+         e.preventDefault();
+         return;
+       }
 
-      console.log(`🚀 Starting drag for: ${file.name}`);
+       if (DEBUG_DRAG_DROP) {
+         console.log('==== DRAG START EVENT ====');
+         console.log(`File: ${file.name}`);
+         console.log(`DataTransfer type: ${e.dataTransfer.constructor.name}`);
+         console.log(`Event target:`, e.currentTarget);
+         
+         // Create a status element to show what's happening
+         const status = document.createElement('div');
+         status.id = 'drag-status-indicator';
+         status.style.position = 'fixed';
+         status.style.bottom = '10px';
+         status.style.right = '10px';
+         status.style.backgroundColor = 'rgba(0,0,0,0.8)';
+         status.style.color = 'white';
+         status.style.padding = '8px 12px';
+         status.style.borderRadius = '4px';
+         status.style.zIndex = '9999';
+         status.style.fontFamily = 'monospace';
+         status.style.fontSize = '12px';
+         status.textContent = `Dragging: ${file.name}`;
+         document.body.appendChild(status);
+         
+         // Remove after 5 seconds
+         setTimeout(() => {
+           if (document.getElementById('drag-status-indicator')) {
+             document.body.removeChild(status);
+           }
+         }, 5000);
+       }
 
       // Get cached file data
       const cachedData = dragPreviews.get(file.id);
 
-      if (cachedData?.isReady && cachedData.blob) {
-        try {
-          // Determine the correct MIME type
-          const fileExtension = file.name.split('.').pop()?.toLowerCase();
-          let mimeType = cachedData.blob.type || "application/octet-stream";
-          
-          // If blob doesn't have a type, try to determine based on extension
-          if (mimeType === "application/octet-stream" || mimeType === "") {
-            if (fileExtension === "pdf") mimeType = "application/pdf";
-            else if (["png", "jpg", "jpeg", "gif"].includes(fileExtension || "")) {
-              mimeType = `image/${fileExtension}`;
-            }
-            else if (["docx", "doc"].includes(fileExtension || "")) {
-              mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-            }
-            // Add more mime types as needed
-          }
-          
-          console.log(`📎 File MIME type: ${mimeType}`);
+             if (cachedData?.isReady && cachedData.blob) {
+         try {
+           // SIMPLIFIED - FOCUS ON BASIC FUNCTIONALITY FIRST
+           const mimeType = sharepointService.getMimeType(file.name);
+           console.log(`File type: ${mimeType}`);
 
-          // Create File object from cached blob with proper type
-          const fileObject = new window.File(
-            [cachedData.blob],
-            file.name,
-            { type: mimeType }
-          );
+           // Create File object
+           const fileObject = new window.File(
+             [cachedData.blob],
+             file.name,
+             { type: mimeType }
+           );
+           
+           // Clear data first
+           if (e.dataTransfer.items && e.dataTransfer.items.clear) {
+             e.dataTransfer.items.clear();
+           }
 
-          // Clear any existing data in the dataTransfer
-          if (e.dataTransfer.items && e.dataTransfer.items.clear) {
-            e.dataTransfer.items.clear();
-          }
+           // Set effect allowed
+           e.dataTransfer.effectAllowed = "copy";
+           
+           // Add the file - this is the core functionality
+           if (e.dataTransfer.items && typeof e.dataTransfer.items.add === "function") {
+             e.dataTransfer.items.add(fileObject);
+             console.log(`Added file: ${file.name}`);
+           }
 
-          // Method 1: Use DataTransfer.items.add
-          if (
-            e.dataTransfer.items &&
-            typeof e.dataTransfer.items.add === "function"
-          ) {
-            e.dataTransfer.items.add(fileObject);
-            console.log(`✅ File added to drag via items.add(): ${file.name}`);
-          } 
-          // Method 2: Set as a DataTransfer file
-          else if (e.dataTransfer.files && "length" in e.dataTransfer.files) {
-            // This is a hack using the internal __proto__ to modify files collection
-            // It's not ideal but sometimes necessary for browser compatibility
-            try {
-              const dt = e.dataTransfer;
-              const fileList = dt.files;
-              const dataTransferItemsList = fileList as unknown as DataTransferItemList;
-              if (dataTransferItemsList) {
-                Object.defineProperty(dataTransferItemsList, '0', {
-                  value: fileObject,
-                  writable: false
-                });
-                Object.defineProperty(dataTransferItemsList, 'length', {
-                  value: 1,
-                  writable: false
-                });
-                console.log(`✅ File added to drag via files collection: ${file.name}`);
-              }
-            } catch (err) {
-              console.error("Failed to set file in dataTransfer.files", err);
-            }
-          }
-          
-          // Backup method: Use DownloadURL format which some sites recognize
-          e.dataTransfer.setData(
-            "DownloadURL",
-            `${mimeType}:${file.name}:${file.downloadUrl || ''}`
-          );
+           // Also provide the file as a download URL (backup method)
+           if (file.downloadUrl) {
+             e.dataTransfer.setData("text/uri-list", file.downloadUrl);
+             e.dataTransfer.setData("DownloadURL", `${mimeType}:${file.name}:${file.downloadUrl}`);
+           }
 
-          // Add URL alternatives (helpful for some sites)
-          e.dataTransfer.setData("text/uri-list", file.downloadUrl || '');
-          e.dataTransfer.setData("text/plain", file.name);
-          
-          e.dataTransfer.effectAllowed = "copy";
-          
-          console.log(`✅ Enhanced drag support configured for: ${file.name}`);
-        } catch (error) {
-          console.error(`❌ Error adding file to drag:`, error);
-          // Fallback to URL-based drag
-          e.dataTransfer.setData("text/plain", file.name);
-          if (file.downloadUrl) {
-            e.dataTransfer.setData("text/uri-list", file.downloadUrl);
-            e.dataTransfer.setData(
-              "DownloadURL",
-              `application/octet-stream:${file.name}:${file.downloadUrl}`
-            );
-          }
-        }
-      } else {
-        console.log(`⚠️ No preloaded data available for ${file.name}, using URL fallback`);
-        // Fallback to URL-based drag
-        e.dataTransfer.setData("text/plain", file.name);
-        if (file.downloadUrl) {
-          e.dataTransfer.setData("text/uri-list", file.downloadUrl);
-          e.dataTransfer.setData(
-            "DownloadURL",
-            `application/octet-stream:${file.name}:${file.downloadUrl}`
-          );
-        }
-        
-        // If we don't have the blob yet, try to preload it now
-        if (file.downloadUrl && !dragPreviews.has(file.id)) {
-          preloadFileForDrag(file);
-        }
-      }
+           // Simple text fallback
+           e.dataTransfer.setData("text/plain", file.name);
+
+           console.log(`Drag started for: ${file.name}`);
+         } catch (error) {
+           console.error(`Error in drag:`, error);
+           
+           // Simple fallback with download URL
+           if (file.downloadUrl) {
+             e.dataTransfer.setData("text/uri-list", file.downloadUrl);
+             e.dataTransfer.setData("DownloadURL", `application/octet-stream:${file.name}:${file.downloadUrl}`);
+             e.dataTransfer.setData("text/plain", file.name);
+           }
+         }
+              } else {
+         // SIMPLIFIED: Just use the file URL for drag
+         console.log(`No cached data for ${file.name}, using URL approach`);
+         
+         // Start with basic text
+         e.dataTransfer.setData("text/plain", file.name);
+         
+         // Use download URL if available
+         if (file.downloadUrl) {
+           const mimeType = sharepointService.getMimeType(file.name);
+           e.dataTransfer.setData("text/uri-list", file.downloadUrl);
+           e.dataTransfer.setData("DownloadURL", `${mimeType}:${file.name}:${file.downloadUrl}`);
+           
+           // Start preloading for next time
+           setTimeout(() => {
+             preloadFileForDrag(file);
+           }, 100);
+         }
+       }
 
       e.dataTransfer.effectAllowed = "copy";
     },
@@ -437,9 +474,41 @@ export const SharePointSidebar: React.FC<SharePointSidebarProps> = ({
 
   const handleDragEnd = useCallback(
     (e: React.DragEvent, file: SharePointFile) => {
-      console.log(
-        `🏁 Drag ended for: ${file.name}, dropEffect: ${e.dataTransfer.dropEffect}`
-      );
+             if (DEBUG_DRAG_DROP) {
+         console.log('==== DRAG END EVENT ====');
+         console.log(`File: ${file.name}`);
+         console.log(`Drop effect: ${e.dataTransfer.dropEffect}`);
+         console.log(`Event target:`, e.currentTarget);
+         
+         // Remove the status indicator if it exists
+         const indicator = document.getElementById('drag-status-indicator');
+         if (indicator && indicator.parentNode) {
+           indicator.parentNode.removeChild(indicator);
+         }
+         
+         // Create a new status for the drag end
+         const status = document.createElement('div');
+         status.id = 'drag-end-indicator';
+         status.style.position = 'fixed';
+         status.style.bottom = '10px';
+         status.style.right = '10px';
+         status.style.backgroundColor = e.dataTransfer.dropEffect === 'none' ? 'rgba(255,0,0,0.8)' : 'rgba(0,128,0,0.8)';
+         status.style.color = 'white';
+         status.style.padding = '8px 12px';
+         status.style.borderRadius = '4px';
+         status.style.zIndex = '9999';
+         status.style.fontFamily = 'monospace';
+         status.style.fontSize = '12px';
+         status.textContent = `Drop: ${file.name} (${e.dataTransfer.dropEffect})`;
+         document.body.appendChild(status);
+         
+         // Remove after 5 seconds
+         setTimeout(() => {
+           if (document.getElementById('drag-end-indicator')) {
+             document.body.removeChild(status);
+           }
+         }, 5000);
+       }
 
       if (
         e.dataTransfer.dropEffect === "copy" ||
@@ -495,13 +564,27 @@ export const SharePointSidebar: React.FC<SharePointSidebarProps> = ({
     return (
       <div
         key={file.id}
-        className={cn(
-          "group flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-all duration-200 cursor-pointer border border-transparent hover:border-gray-200 dark:hover:border-gray-700",
-          file.isFolder && "hover:bg-blue-50 dark:hover:bg-blue-900/20",
-          !file.isFolder && isReady && "hover:shadow-md hover:border-blue-300 dark:hover:border-blue-700"
-        )}
+                 className={cn(
+           "group flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-all duration-200 cursor-pointer border border-transparent hover:border-gray-200 dark:hover:border-gray-700",
+           file.isFolder && "hover:bg-blue-50 dark:hover:bg-blue-900/20",
+           !file.isFolder && "cursor-grab hover:shadow-md hover:border-blue-300 dark:hover:border-blue-700",
+           !file.isFolder && isReady && "bg-blue-50/30 dark:bg-blue-900/10"
+         )}
         draggable={!file.isFolder}
-        onMouseEnter={() => !file.isFolder && preloadFileForDrag(file)}
+        onMouseEnter={() => {
+          // Aggressively preload on hover for better drag experience
+          if (!file.isFolder) {
+            // Start preloading immediately with high priority
+            console.log(`🔄 Mouse entered ${file.name} - starting preload`);
+            preloadFileForDrag(file);
+            
+            // Add visual cue that preloading is happening
+            const element = document.activeElement;
+            if (element instanceof HTMLElement) {
+              element.style.cursor = 'grab';
+            }
+          }
+        }}
         onDragStart={(e) => handleDragStart(e, file)}
         onDragEnd={(e) => handleDragEnd(e, file)}
         onClick={() => {
@@ -557,67 +640,25 @@ export const SharePointSidebar: React.FC<SharePointSidebarProps> = ({
             <Button
               variant="ghost"
               size="sm"
-              onClick={async (e) => {
+              onClick={(e) => {
                 e.stopPropagation();
-                console.log(`🚀 Download button clicked for: ${file.name}`);
-                console.log(`📥 Download URL: ${file.downloadUrl}`);
-
-                if (!file.downloadUrl) {
-                  console.error(
-                    "❌ No download URL available for file:",
-                    file.name
-                  );
-                  alert("Download URL not available for this file");
-                  return;
-                }
-
+                if (!file.downloadUrl) return;
+                
                 // Set downloading state
-                setDownloadingFiles((prev) => new Set(prev.add(file.id)));
-
-                try {
-                  // Method 1: Try direct download with anchor element
-                  console.log("🔗 Attempting direct download...");
-                  const link = document.createElement("a");
-                  link.href = file.downloadUrl;
-                  link.download = file.name;
-                  link.style.display = "none";
-                  link.setAttribute("target", "_blank");
-
-                  document.body.appendChild(link);
-                  link.click();
-                  document.body.removeChild(link);
-
-                  console.log(`✅ Download initiated for: ${file.name}`);
-
-                  // Remove downloading state after a delay
-                  setTimeout(() => {
-                    setDownloadingFiles((prev) => {
-                      const next = new Set(prev);
-                      next.delete(file.id);
-                      return next;
-                    });
-                  }, 3000);
-                } catch (error) {
-                  console.error("❌ Download failed, trying fallback:", error);
-
-                  // Remove downloading state
-                  setDownloadingFiles((prev) => {
+                setDownloadingFiles(prev => new Set(prev.add(file.id)));
+                
+                // ULTRA SIMPLE APPROACH: Direct file download using window.location
+                // This is the most reliable way to force a download without showing dialogs
+                window.location.href = file.downloadUrl;
+                
+                // Reset download state after a short delay
+                setTimeout(() => {
+                  setDownloadingFiles(prev => {
                     const next = new Set(prev);
                     next.delete(file.id);
                     return next;
                   });
-
-                  // Fallback: Open in new tab
-                  try {
-                    window.open(file.downloadUrl, "_blank");
-                    console.log("🔄 Opened download URL in new tab");
-                  } catch (fallbackError) {
-                    console.error("❌ Fallback also failed:", fallbackError);
-                    alert(
-                      `Failed to download ${file.name}. Please try opening the file in SharePoint.`
-                    );
-                  }
-                }
+                }, 2000);
               }}
               className={`h-8 w-8 p-0 transition-all hover:bg-blue-100 dark:hover:bg-blue-900 text-blue-600 dark:text-blue-400 hover:scale-110 ${
                 isDownloading ? "animate-pulse" : ""

@@ -12974,17 +12974,7 @@ const disconnectWireGuardWindows = async () => {
 const configureSecureSession = () => {
   const defaultSession = session.defaultSession;
   const securityHeaders = {
-    "Content-Security-Policy": [
-      "default-src 'self' https:",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://accounts.google.com https://*.googleapis.com https://ssl.gstatic.com",
-      "style-src 'self' 'unsafe-inline' https://accounts.google.com https://fonts.googleapis.com",
-      "img-src 'self' data: https: blob:",
-      "font-src 'self' https://fonts.gstatic.com",
-      "connect-src 'self' https: wss: ws:",
-      "frame-src 'self' https://accounts.google.com https://*.google.com",
-      "object-src 'none'",
-      "base-uri 'self'"
-    ].join("; "),
+    // Intentionally omit CSP unless explicitly enabled elsewhere
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "SAMEORIGIN",
     "X-XSS-Protection": "1; mode=block",
@@ -13059,6 +13049,15 @@ const configureSecureSession = () => {
     const url = details.url.toLowerCase();
     if (url.startsWith("chrome-extension://") || url.startsWith("moz-extension://") || url.startsWith("extension://")) {
       callback({ cancel: false });
+      return;
+    }
+    if (url.startsWith("devtools://")) {
+      if (process.env.SECURITY_BLOCK_DEVTOOLS === "true") {
+        console.log("🚫 SHARED AUTH: DevTools blocked by policy:", details.url);
+        callback({ cancel: true });
+      } else {
+        callback({ cancel: false });
+      }
       return;
     }
     if (url.includes("localhost") || url.includes("127.0.0.1") || url.startsWith("file://") || url.startsWith("data:")) {
@@ -13610,18 +13609,31 @@ const configureSecureSession = () => {
       });
       return;
     }
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        "X-Frame-Options": ["SAMEORIGIN"],
-        "X-Content-Type-Options": ["nosniff"],
-        "Referrer-Policy": ["strict-origin-when-cross-origin"],
-        "Permissions-Policy": ["camera=(), microphone=(), geolocation=()"],
-        "Content-Security-Policy": [
-          "default-src 'self' file: chrome-extension: moz-extension: extension:; script-src 'self' 'unsafe-inline' 'unsafe-eval' file: chrome-extension: moz-extension: extension:; style-src 'self' 'unsafe-inline' https: file: chrome-extension: moz-extension: extension:; connect-src 'self' https: wss: data: file: chrome-extension: moz-extension: extension:; img-src 'self' https: data: blob: file: chrome-extension: moz-extension: extension:; font-src 'self' https: data: file: chrome-extension: moz-extension: extension:; media-src 'self' https: data: file: chrome-extension: moz-extension: extension:; frame-src 'self' https: file: chrome-extension: moz-extension: extension:; child-src 'self' https: file: chrome-extension: moz-extension: extension:;"
-        ]
-      }
-    });
+    if (process.env.SECURITY_APPLY_CSP === "true") {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          "X-Frame-Options": ["SAMEORIGIN"],
+          "X-Content-Type-Options": ["nosniff"],
+          "Referrer-Policy": ["strict-origin-when-cross-origin"],
+          "Permissions-Policy": ["camera=(), microphone=(), geolocation=()"],
+          // Keep a permissive, Electron-friendly CSP if enabled
+          "Content-Security-Policy": [
+            "default-src 'self' http: https: data: blob: file: chrome-extension: moz-extension: extension:; script-src 'self' 'unsafe-inline' 'unsafe-eval' http: https: file: chrome-extension: moz-extension: extension:; style-src 'self' 'unsafe-inline' http: https: file: chrome-extension: moz-extension: extension:; connect-src 'self' http: https: wss: ws: data: file: chrome-extension: moz-extension: extension:; img-src 'self' http: https: data: blob: file: chrome-extension: moz-extension: extension:; font-src 'self' http: https: data: file: chrome-extension: moz-extension: extension:; media-src 'self' http: https: data: file: chrome-extension: moz-extension: extension:; frame-src 'self' http: https: file: chrome-extension: moz-extension: extension:; child-src 'self' http: https: file: chrome-extension: moz-extension: extension:;"
+          ]
+        }
+      });
+    } else {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          "X-Frame-Options": ["SAMEORIGIN"],
+          "X-Content-Type-Options": ["nosniff"],
+          "Referrer-Policy": ["strict-origin-when-cross-origin"],
+          "Permissions-Policy": ["camera=(), microphone=(), geolocation=()"]
+        }
+      });
+    }
   });
   defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
     const url = details.url.toLowerCase();

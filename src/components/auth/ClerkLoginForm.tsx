@@ -12,7 +12,7 @@ import { Separator } from "../ui/separator";
 import { LoadingScreen } from "../ui/loading-screen";
 import { ErrorDisplay } from "../ui/error-display";
 import clerkAuth from "../../services/clerkService";
-import { SecureBrowserDatabaseService } from "@/services/databaseService";
+import { confirmReload } from "@/utils/reload";
 import { supabase } from "@/lib/supabase";
 
 import type { AuthState } from "../../types/clerk";
@@ -45,7 +45,7 @@ export const ClerkLoginForm: React.FC<ClerkLoginFormProps> = ({
   useEffect(() => {
     let mounted = true;
     let authChangeHandler: ((state: AuthState) => void) | null = null;
-    
+
     const initializeClerk = async () => {
       try {
         setIsInitializing(true);
@@ -53,7 +53,7 @@ export const ClerkLoginForm: React.FC<ClerkLoginFormProps> = ({
 
         await clerkAuth.initialize();
         const state = await clerkAuth.refreshAuthenticationState();
-        
+
         if (!mounted) return;
         setAuthState(state);
 
@@ -65,21 +65,21 @@ export const ClerkLoginForm: React.FC<ClerkLoginFormProps> = ({
         // Set up listener for future auth changes - only once
         authChangeHandler = (newState: AuthState) => {
           if (!mounted) return;
-          
+
           // Only update if auth state actually changed
-          setAuthState(prevState => {
-            const stateChanged = 
-              prevState.isSignedIn !== newState.isSignedIn || 
+          setAuthState((prevState) => {
+            const stateChanged =
+              prevState.isSignedIn !== newState.isSignedIn ||
               prevState.user?.id !== newState.user?.id;
-              
+
             if (stateChanged && newState.isSignedIn && newState.user) {
               handleUserSignedIn(newState);
             }
-            
+
             return stateChanged ? newState : prevState;
           });
         };
-        
+
         clerkAuth.onAuthStateChange(authChangeHandler);
         setIsInitializing(false);
       } catch (error) {
@@ -97,7 +97,7 @@ export const ClerkLoginForm: React.FC<ClerkLoginFormProps> = ({
 
     const handleInitialAuthState = async (state: AuthState) => {
       if (!state.user) return;
-      
+
       const userEmail = state.user.emailAddresses?.[0]?.emailAddress;
       if (!userEmail) {
         onAuthError("No email address found for this user");
@@ -111,17 +111,19 @@ export const ClerkLoginForm: React.FC<ClerkLoginFormProps> = ({
           .select("*")
           .eq("email", userEmail)
           .single();
-        
-        if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
+
+        if (error && error.code !== "PGRST116") {
+          // PGRST116 = no rows found
           console.error("Error fetching user data:", error);
           throw new Error("Failed to fetch user data from database");
         }
-        
+
         if (userData) {
           // User exists in database, use database values
           onAuthSuccess({
             id: state.user.id,
-            name: userData.name || state.user.fullName || userEmail.split("@")[0],
+            name:
+              userData.name || state.user.fullName || userEmail.split("@")[0],
             email: userEmail,
             accessLevel: userData.access_level,
             canEditAccessLevel: userData.can_edit_access_level,
@@ -152,10 +154,10 @@ export const ClerkLoginForm: React.FC<ClerkLoginFormProps> = ({
         });
       }
     };
-    
+
     const handleUserSignedIn = async (state: AuthState) => {
       if (!state.user) return;
-      
+
       const userEmail = state.user.emailAddresses?.[0]?.emailAddress;
       if (!userEmail) {
         onAuthError("No email address found for this user");
@@ -169,17 +171,19 @@ export const ClerkLoginForm: React.FC<ClerkLoginFormProps> = ({
           .select("*")
           .eq("email", userEmail)
           .single();
-        
-        if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
+
+        if (error && error.code !== "PGRST116") {
+          // PGRST116 = no rows found
           console.error("Error fetching user data:", error);
           throw new Error("Failed to fetch user data from database");
         }
-        
+
         if (userData) {
           // User exists in database, use database values
           onAuthSuccess({
             id: state.user.id,
-            name: userData.name || state.user.fullName || userEmail.split("@")[0],
+            name:
+              userData.name || state.user.fullName || userEmail.split("@")[0],
             email: userEmail,
             accessLevel: userData.access_level,
             canEditAccessLevel: userData.can_edit_access_level,
@@ -193,7 +197,7 @@ export const ClerkLoginForm: React.FC<ClerkLoginFormProps> = ({
             name: state.user.fullName || userEmail.split("@")[0],
             email: userEmail,
             accessLevel: 3, // Default to highest access level, database will override if needed
-            canEditAccessLevel: true, 
+            canEditAccessLevel: true,
             avatar: state.user.imageUrl || "",
           });
         }
@@ -220,8 +224,6 @@ export const ClerkLoginForm: React.FC<ClerkLoginFormProps> = ({
       }
     };
   }, [onAuthSuccess, onAuthError]);
-
-
 
   const handleSignIn = async () => {
     try {
@@ -289,7 +291,14 @@ export const ClerkLoginForm: React.FC<ClerkLoginFormProps> = ({
             critical: true,
           },
         ]}
-        onRetry={() => window.location.reload()}
+        onRetry={async () => {
+          const ok = await confirmReload({
+            title: "Reload authentication?",
+            message:
+              "Reloading can help recover from auth initialization errors.",
+          });
+          if (ok) window.location.reload();
+        }}
       />
     );
   }
@@ -416,8 +425,6 @@ export const ClerkLoginForm: React.FC<ClerkLoginFormProps> = ({
                   </div>
                 )}
               </Button>
-
-
 
               {/* Features List */}
               <div className="mt-6 pt-4 border-t border-gray-200">

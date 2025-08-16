@@ -526,33 +526,23 @@ const disconnectWireGuardWindows = async (): Promise<boolean> => {
 const configureSecureSession = (): void => {
   const defaultSession = session.defaultSession;
 
-  // 🔐 ENHANCED SECURITY: Configure security headers and policies for Google OAuth compatibility
+  // 🔐 ENHANCED SECURITY: Configure security headers (no CSP by default)
   const securityHeaders = {
-    "Content-Security-Policy": [
-      "default-src 'self' https:",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://accounts.google.com https://*.googleapis.com https://ssl.gstatic.com",
-      "style-src 'self' 'unsafe-inline' https://accounts.google.com https://fonts.googleapis.com",
-      "img-src 'self' data: https: blob:",
-      "font-src 'self' https://fonts.gstatic.com",
-      "connect-src 'self' https: wss: ws:",
-      "frame-src 'self' https://accounts.google.com https://*.google.com",
-      "object-src 'none'",
-      "base-uri 'self'",
-    ].join("; "),
+    // Intentionally omit CSP unless explicitly enabled elsewhere
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "SAMEORIGIN",
     "X-XSS-Protection": "1; mode=block",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Permissions-Policy":
       "geolocation=(), microphone=(), camera=(), payment=(), usb=()",
-  };
+  } as Record<string, string>;
 
   // Apply security headers to all sessions
   const applySecurity = (sessionInstance: Electron.Session) => {
     sessionInstance.webRequest.onHeadersReceived((details, callback) => {
       const responseHeaders = details.responseHeaders || {};
 
-      // Add security headers
+      // Add baseline security headers; do not inject CSP here
       Object.entries(securityHeaders).forEach(([header, value]) => {
         responseHeaders[header] = [value];
       });
@@ -661,6 +651,18 @@ const configureSecureSession = (): void => {
       url.startsWith("extension://")
     ) {
       callback({ cancel: false });
+      return;
+    }
+
+    // Allow DevTools protocol unless explicitly blocked by env
+    if (url.startsWith("devtools://")) {
+      if (process.env.SECURITY_BLOCK_DEVTOOLS === "true") {
+        console.log("🚫 SHARED AUTH: DevTools blocked by policy:", details.url);
+        callback({ cancel: true });
+      } else {
+        // Minimal log to avoid noise
+        callback({ cancel: false });
+      }
       return;
     }
 
@@ -1496,27 +1498,41 @@ const configureSecureSession = (): void => {
       return;
     }
 
-    // Apply restrictive CSP only to the main app (localhost/file)
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        "X-Frame-Options": ["SAMEORIGIN"],
-        "X-Content-Type-Options": ["nosniff"],
-        "Referrer-Policy": ["strict-origin-when-cross-origin"],
-        "Permissions-Policy": ["camera=(), microphone=(), geolocation=()"],
-        "Content-Security-Policy": [
-          "default-src 'self' file: chrome-extension: moz-extension: extension:; " +
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval' file: chrome-extension: moz-extension: extension:; " +
-            "style-src 'self' 'unsafe-inline' https: file: chrome-extension: moz-extension: extension:; " +
-            "connect-src 'self' https: wss: data: file: chrome-extension: moz-extension: extension:; " +
-            "img-src 'self' https: data: blob: file: chrome-extension: moz-extension: extension:; " +
-            "font-src 'self' https: data: file: chrome-extension: moz-extension: extension:; " +
-            "media-src 'self' https: data: file: chrome-extension: moz-extension: extension:; " +
-            "frame-src 'self' https: file: chrome-extension: moz-extension: extension:; " +
-            "child-src 'self' https: file: chrome-extension: moz-extension: extension:;",
-        ],
-      },
-    });
+    // Optionally apply CSP only if explicitly enabled
+    if (process.env.SECURITY_APPLY_CSP === "true") {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          "X-Frame-Options": ["SAMEORIGIN"],
+          "X-Content-Type-Options": ["nosniff"],
+          "Referrer-Policy": ["strict-origin-when-cross-origin"],
+          "Permissions-Policy": ["camera=(), microphone=(), geolocation=()"],
+          // Keep a permissive, Electron-friendly CSP if enabled
+          "Content-Security-Policy": [
+            "default-src 'self' http: https: data: blob: file: chrome-extension: moz-extension: extension:; " +
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' http: https: file: chrome-extension: moz-extension: extension:; " +
+              "style-src 'self' 'unsafe-inline' http: https: file: chrome-extension: moz-extension: extension:; " +
+              "connect-src 'self' http: https: wss: ws: data: file: chrome-extension: moz-extension: extension:; " +
+              "img-src 'self' http: https: data: blob: file: chrome-extension: moz-extension: extension:; " +
+              "font-src 'self' http: https: data: file: chrome-extension: moz-extension: extension:; " +
+              "media-src 'self' http: https: data: file: chrome-extension: moz-extension: extension:; " +
+              "frame-src 'self' http: https: file: chrome-extension: moz-extension: extension:; " +
+              "child-src 'self' http: https: file: chrome-extension: moz-extension: extension:;",
+          ],
+        },
+      });
+    } else {
+      // Don’t set CSP at all
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          "X-Frame-Options": ["SAMEORIGIN"],
+          "X-Content-Type-Options": ["nosniff"],
+          "Referrer-Policy": ["strict-origin-when-cross-origin"],
+          "Permissions-Policy": ["camera=(), microphone=(), geolocation=()"],
+        },
+      });
+    }
   });
 
   // Configure user agent for SharePoint compatibility and OAuth

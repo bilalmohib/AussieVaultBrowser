@@ -4,7 +4,7 @@ import { contextBridge, ipcRenderer } from "electron";
 contextBridge.exposeInMainWorld("ipcRenderer", {
   on(...args: Parameters<typeof ipcRenderer.on>) {
     const [channel, listener] = args;
-    return ipcRenderer.on(channel, (event, ...args) =>
+    return ipcRenderer.on(channel, (event: any, ...args: any[]) =>
       listener(event, ...args)
     );
   },
@@ -30,7 +30,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     disconnect: () => ipcRenderer.invoke("vpn-disconnect"),
     checkIP: () => ipcRenderer.invoke("vpn-check-ip"),
     onStatusChange: (callback: (status: string) => void) => {
-      ipcRenderer.on("vpn-status-changed", (_, status) => callback(status));
+      ipcRenderer.on("vpn-status-changed", (_: any, status: any) =>
+        callback(status)
+      );
     },
     removeStatusListener: () => {
       ipcRenderer.removeAllListeners("vpn-status-changed");
@@ -48,6 +50,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("download-choose-local", downloadId),
     chooseMeta: (downloadId: string) =>
       ipcRenderer.invoke("download-choose-meta", downloadId),
+    // Start a download by URL so it goes through Electron's will-download flow
+    startByUrl: (url: string, suggestedFilename?: string) =>
+      ipcRenderer.invoke("download-start-by-url", { url, suggestedFilename }),
   },
 
   // Event listeners for download events
@@ -93,7 +98,9 @@ contextBridge.exposeInMainWorld("secureBrowser", {
     disconnect: () => ipcRenderer.invoke("vpn-disconnect"),
     checkIP: () => ipcRenderer.invoke("vpn-check-ip"),
     onStatusChange: (callback: (status: string) => void) => {
-      ipcRenderer.on("vpn-status-changed", (_, status) => callback(status));
+      ipcRenderer.on("vpn-status-changed", (_: any, status: any) =>
+        callback(status)
+      );
     },
     removeStatusListener: () => {
       ipcRenderer.removeAllListeners("vpn-status-changed");
@@ -134,6 +141,8 @@ contextBridge.exposeInMainWorld("secureBrowser", {
     // Start native drag (must be called synchronously from dragstart)
     startDrag: (filePath: string) =>
       ipcRenderer.send("sharepoint-start-drag", { filePath }),
+    fetchBinary: (url: string) =>
+      ipcRenderer.invoke("sharepoint-fetch-binary", { url }),
   },
 
   // System Information
@@ -217,26 +226,13 @@ contextBridge.exposeInMainWorld("secureBrowser", {
     show: (params: { x: number; y: number }) =>
       ipcRenderer.invoke("context-menu-show", params),
     onAction: (callback: (action: string) => void) => {
-      ipcRenderer.on("context-menu-action", (_, action) => callback(action));
+      ipcRenderer.on("context-menu-action", (_: any, action: any) =>
+        callback(action)
+      );
     },
     removeActionListener: () => {
       ipcRenderer.removeAllListeners("context-menu-action");
     },
-  },
-
-  // Auth Operations
-  auth: {
-    startGoogleSignIn: () => ipcRenderer.send("start-google-signin"),
-    onGoogleSignInSuccess: (callback: (userInfo: any) => void) =>
-      ipcRenderer.on("google-signin-success", (_, userInfo) =>
-        callback(userInfo)
-      ),
-    onOAuthError: (callback: (error: string) => void) =>
-      ipcRenderer.on("oauth-error", (_, error) => callback(error)),
-    removeGoogleSignInListener: () =>
-      ipcRenderer.removeAllListeners("google-signin-success"),
-    removeOAuthErrorListener: () =>
-      ipcRenderer.removeAllListeners("oauth-error"),
   },
 });
 
@@ -311,6 +307,14 @@ export interface SecureBrowserAPI {
       filename: string;
     }) => Promise<{ success: boolean; path?: string; error?: string }>;
     startDrag: (filePath: string) => void;
+    fetchBinary: (
+      url: string
+    ) => Promise<{
+      success: boolean;
+      data?: string;
+      contentType?: string;
+      error?: string;
+    }>;
   };
   system: {
     getVersion: () => Promise<string>;
@@ -362,13 +366,6 @@ export interface SecureBrowserAPI {
   };
   on: (channel: string, func: (...args: any[]) => void) => void;
   removeListener: (channel: string, func: (...args: any[]) => void) => void;
-  auth: {
-    startGoogleSignIn: () => void;
-    onGoogleSignInSuccess: (callback: (userInfo: any) => void) => void;
-    onOAuthError: (callback: (error: string) => void) => void;
-    removeGoogleSignInListener: () => void;
-    removeOAuthErrorListener: () => void;
-  };
 }
 
 declare global {

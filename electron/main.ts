@@ -1,4 +1,12 @@
-import { app, BrowserWindow, session, ipcMain, Menu, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  session,
+  ipcMain,
+  Menu,
+  shell,
+  net,
+} from "electron";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { spawn, ChildProcess } from "child_process";
@@ -8,8 +16,13 @@ import os from "os";
 import { printPlatformInstructions } from "../src/utils/platform.js";
 import electronSquirrelStartup from "electron-squirrel-startup";
 import fetch from "node-fetch";
-
 import crypto from "crypto";
+
+// Import environment service
+import {
+  initEnvironmentService,
+  getAllEnvVars,
+} from "./services/environment-service";
 
 // PKCE utility functions
 function base64URLEncode(str: Buffer) {
@@ -135,6 +148,9 @@ const pendingDownloads = new Map<
   { item: any; resolve: Function; reject: Function }
 >();
 
+// Map of URLs that should bypass choice and download locally (timestamp expiry)
+const autoLocalByUrl = new Map<string, number>();
+
 // VPN status tracking
 const updateVPNStatus = (connected: boolean): void => {
   const wasConnected = vpnConnected;
@@ -156,13 +172,7 @@ const updateVPNStatus = (connected: boolean): void => {
     }
   }
 
-  console.log(
-    `📡 🇦🇺 VPN Status: ${
-      connected
-        ? "✅ AUSTRALIAN VPN CONNECTED - All HTTPS requests allowed"
-        : "❌ NO AUSTRALIAN VPN - All external requests BLOCKED"
-    }`
-  );
+  // Minimal logging; renderer UI will reflect status
 
   // Send VPN status to all windows
   windows.forEach((window) => {
@@ -346,12 +356,10 @@ const checkWireGuardConnection = async (): Promise<boolean> => {
   try {
     const isAustralian = await checkCurrentIP();
     if (isAustralian) {
-      console.log("✅ IP geolocation check PASSED - Australian VPN confirmed");
+      // console.log('IP check passed: AU')
       return true;
     } else {
-      console.log(
-        "❌ IP geolocation check FAILED - Not connected to Australian VPN"
-      );
+      // console.log('IP check failed: not AU')
       return false;
     }
   } catch (error) {
@@ -362,70 +370,79 @@ const checkWireGuardConnection = async (): Promise<boolean> => {
 
 // Check current public IP and country using direct HTTPS requests
 const checkCurrentIP = async (): Promise<boolean> => {
-  console.log(
-    "🔍 🇦🇺 AUSTRALIAN IP DETECTION: Starting bulletproof IP detection with multiple APIs..."
-  );
+  // console.log('Starting IP detection...')
 
   // Try direct HTTPS requests first (most reliable)
   const apis = [
     "https://ipinfo.io/json",
     "https://ipapi.co/json",
     "https://ip-api.com/json",
-    "https://freegeoip.app/json/",
-    "https://extreme-ip-lookup.com/json/",
   ];
 
-  for (const api of apis) {
-    try {
-      const response = await fetch(api, {
-        signal: AbortSignal.timeout(8000),
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        },
-      });
-
-      if (!response.ok) continue;
-
-      const data = await response.json();
-      const ip = data.ip || data.query || "";
-      const country =
-        data.country || data.country_name || data.countryCode || "";
-      const region = data.region || data.regionName || "";
-      const city = data.city || "";
-
-      if (country) {
-        console.log(`🔍 Current public IP: ${ip}`);
-        console.log(`🔍 Location: ${city}, ${region}, ${country}`);
-
-        const isAustralianIP = isAustralianCountry(country);
-
-        if (isAustralianIP) {
-          console.log("🇦🇺 ✅ VERIFIED: Connected via Australian VPN!");
-          console.log(`📍 Australian location confirmed: ${city}, ${region}`);
-          return true;
-        } else {
-          console.log(
-            "🚨 ❌ SECURITY VIOLATION: Not connected to Australian VPN!"
-          );
-          console.log(`🚫 Current location: ${country} - BROWSING BLOCKED`);
-          console.log(
-            "⚠️  Please connect to Australian VPN server to continue"
-          );
-          return false;
-        }
+  // Helper: basic Promise.any polyfill to return first fulfilled
+  const promiseAny = <T>(promises: Promise<T>[]): Promise<T> => {
+    return new Promise<T>((resolve, reject) => {
+      let rejectedCount = 0;
+      const total = promises.length;
+      if (total === 0) {
+        reject(new Error("No promises provided"));
+        return;
       }
-    } catch (error) {
-      console.log(`🔍 API ${api} failed, trying next...`);
-      continue;
+      promises.forEach((p) => {
+        p.then(resolve).catch(() => {
+          rejectedCount += 1;
+          if (rejectedCount === total) {
+            reject(new Error("All IP APIs failed"));
+          }
+        });
+      });
+    });
+  };
+
+  // Race all APIs with shorter timeouts; first success wins
+  try {
+    const result = await promiseAny(
+      apis.map(async (api) => {
+        const response = await fetch(api, {
+          signal: AbortSignal.timeout(3000),
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          },
+        });
+        if (!response.ok) throw new Error("bad response");
+        const data = await response.json();
+        const ip = data.ip || data.query || "";
+        const country =
+          data.country || data.country_name || data.countryCode || "";
+        const region = data.region || data.regionName || "";
+        const city = data.city || "";
+        return { ip, country, region, city };
+      })
+    );
+
+    const { ip, country, region, city } = result as any;
+    console.log(`🔍 Current public IP: ${ip}`);
+    console.log(`🔍 Location: ${city}, ${region}, ${country}`);
+    const isAustralianIP = isAustralianCountry(country);
+    if (isAustralianIP) {
+      console.log("🇦🇺 ✅ VERIFIED: Connected via Australian VPN!");
+      console.log(`📍 Australian location confirmed: ${city}, ${region}`);
+      return true;
     }
+    console.log("🚨 ❌ SECURITY VIOLATION: Not connected to Australian VPN!");
+    console.log(`🚫 Current location: ${country} - BROWSING BLOCKED`);
+    console.log("⚠️  Please connect to Australian VPN server to continue");
+    return false;
+  } catch {
+    // fall through to fallback
   }
 
   // Fallback: try basic IP detection without country info
   console.log("🔄 PowerShell command failed, trying simpler IP check...");
   try {
     const fallbackResponse = await fetch("https://api.ipify.org?format=json", {
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(2000),
     });
 
     if (fallbackResponse.ok) {
@@ -446,7 +463,6 @@ const checkCurrentIP = async (): Promise<boolean> => {
     "⚠️  Unable to verify Australian IP - SECURITY MEASURE ACTIVATED"
   );
   return false;
-
 };
 
 // Note: testVPNConnectivity function removed - ping connectivity is NOT a reliable VPN indicator
@@ -518,33 +534,23 @@ const disconnectWireGuardWindows = async (): Promise<boolean> => {
 const configureSecureSession = (): void => {
   const defaultSession = session.defaultSession;
 
-  // 🔐 ENHANCED SECURITY: Configure security headers and policies for Google OAuth compatibility
+  // 🔐 ENHANCED SECURITY: Configure security headers (no CSP by default)
   const securityHeaders = {
-    "Content-Security-Policy": [
-      "default-src 'self' https:",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://accounts.google.com https://*.googleapis.com https://ssl.gstatic.com",
-      "style-src 'self' 'unsafe-inline' https://accounts.google.com https://fonts.googleapis.com",
-      "img-src 'self' data: https: blob:",
-      "font-src 'self' https://fonts.gstatic.com",
-      "connect-src 'self' https: wss: ws:",
-      "frame-src 'self' https://accounts.google.com https://*.google.com",
-      "object-src 'none'",
-      "base-uri 'self'",
-    ].join("; "),
+    // Intentionally omit CSP unless explicitly enabled elsewhere
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "SAMEORIGIN",
     "X-XSS-Protection": "1; mode=block",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Permissions-Policy":
       "geolocation=(), microphone=(), camera=(), payment=(), usb=()",
-  };
+  } as Record<string, string>;
 
   // Apply security headers to all sessions
   const applySecurity = (sessionInstance: Electron.Session) => {
     sessionInstance.webRequest.onHeadersReceived((details, callback) => {
       const responseHeaders = details.responseHeaders || {};
 
-      // Add security headers
+      // Add baseline security headers; do not inject CSP here
       Object.entries(securityHeaders).forEach(([header, value]) => {
         responseHeaders[header] = [value];
       });
@@ -593,7 +599,7 @@ const configureSecureSession = (): void => {
 
   // 🍪 ENABLE PERSISTENT COOKIES: Essential for Google Sign-In and other website logins
   // This ensures users stay logged in to Gmail, YouTube, etc.
-  console.log("🍪 Configuring persistent cookies for webview session...");
+  // Minimal logs during startup to avoid noise before login
 
   // NUCLEAR OPTION: Completely disable all webRequest blocking for webview session
   try {
@@ -636,9 +642,7 @@ const configureSecureSession = (): void => {
         ],
       })
       .then(() => {
-        console.log(
-          "🧹 Webview session temporary storage cleared (cookies preserved)"
-        );
+        // Minimal log
       });
   } catch (e: any) {
     console.log("🔧 Storage clear attempt:", e?.message || "Unknown error");
@@ -658,6 +662,18 @@ const configureSecureSession = (): void => {
       return;
     }
 
+    // Allow DevTools protocol unless explicitly blocked by env
+    if (url.startsWith("devtools://")) {
+      if (process.env.SECURITY_BLOCK_DEVTOOLS === "true") {
+        console.log("🚫 SHARED AUTH: DevTools blocked by policy:", details.url);
+        callback({ cancel: true });
+      } else {
+        // Minimal log to avoid noise
+        callback({ cancel: false });
+      }
+      return;
+    }
+
     // Allow development and internal requests
     if (
       url.includes("localhost") ||
@@ -669,7 +685,7 @@ const configureSecureSession = (): void => {
       return;
     }
 
-    // � CRITICAL: Always allow IP geolocation requests (needed to verify Australian VPN)
+    // Allow IP geolocation requests (post-auth checks will use this)
     if (
       url.includes("ipinfo.io") ||
       url.includes("ipapi.co") ||
@@ -685,26 +701,12 @@ const configureSecureSession = (): void => {
       url.includes("freegeoip.app") ||
       url.includes("extreme-ip-lookup.com")
     ) {
-      console.log(
-        "✅ 🔍 SHARED AUTH: ALLOWING IP geolocation request (NEVER BLOCKED):",
-        details.url
-      );
+      // no-op log
       callback({ cancel: false });
       return;
     }
 
-    // �🚨 STRICT SECURITY: Block OTHER external requests if VPN not connected to Australia
-    if (!vpnConnected && url.startsWith("https://")) {
-      console.log(
-        "🚫 🇦🇺 SHARED AUTH: BLOCKING external request - Australian VPN required:",
-        details.url
-      );
-      console.log(
-        "⚠️  Connect to Australian VPN server to access external websites"
-      );
-      callback({ cancel: true });
-      return;
-    }
+    // Removed blocking: allow all external requests regardless of VPN status
 
     // Allow Clerk authentication domains when VPN is connected
     if (
@@ -814,18 +816,7 @@ const configureSecureSession = (): void => {
       return;
     }
 
-    // �🚨 STRICT SECURITY: Block OTHER external requests if VPN not connected to Australia
-    if (!vpnConnected && url.startsWith("https://")) {
-      console.log(
-        "🚫 🇦🇺 WEBVIEW: BLOCKING external request - Australian VPN required:",
-        details.url
-      );
-      console.log(
-        "⚠️  Connect to Australian VPN server to access external websites"
-      );
-      callback({ cancel: true });
-      return;
-    }
+    // Removed blocking: allow all external requests regardless of VPN status
 
     // Log for debugging authentication issues when VPN is connected
     if (
@@ -844,13 +835,6 @@ const configureSecureSession = (): void => {
     if (url.startsWith("https://")) {
       // console.log('✅ 🇦🇺 WEBVIEW: ALLOWING HTTPS request via Australian VPN:', details.url);
       callback({ cancel: false });
-      return;
-    }
-
-    // Block HTTP requests
-    if (url.startsWith("http://")) {
-      console.log("🚫 WEBVIEW: BLOCKING insecure HTTP request:", details.url);
-      callback({ cancel: true });
       return;
     }
 
@@ -962,6 +946,20 @@ const configureSecureSession = (): void => {
     // PAUSE the download to show user options
     event.preventDefault();
 
+    // If this URL is flagged for auto local download, bypass choice
+    try {
+      const url = item.getURL();
+      const expiry = autoLocalByUrl.get(url);
+      if (expiry && expiry > Date.now()) {
+        // Ensure we don't show choice for this item
+        autoLocalByUrl.delete(url);
+        await handleLocalDownload(downloadId, item);
+        return;
+      }
+    } catch (e) {
+      // Continue to normal flow if any error
+    }
+
     // Store the download item for later processing
     const downloadPromise = new Promise<"local" | "meta">((resolve, reject) => {
       pendingDownloads.set(downloadId, { item, resolve, reject });
@@ -1033,6 +1031,12 @@ const configureSecureSession = (): void => {
   // Handle local download (original behavior)
   const handleLocalDownload = async (downloadId: string, item: any) => {
     return new Promise<void>((resolve) => {
+      // Set the save path to the user's downloads folder
+      const downloadsPath = app.getPath("downloads");
+      const filename = item.getFilename();
+      const savePath = path.join(downloadsPath, filename);
+      item.setSavePath(savePath);
+
       // Send download started event
       const downloadStartedData = {
         id: downloadId,
@@ -1502,27 +1506,41 @@ const configureSecureSession = (): void => {
       return;
     }
 
-    // Apply restrictive CSP only to the main app (localhost/file)
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        "X-Frame-Options": ["SAMEORIGIN"],
-        "X-Content-Type-Options": ["nosniff"],
-        "Referrer-Policy": ["strict-origin-when-cross-origin"],
-        "Permissions-Policy": ["camera=(), microphone=(), geolocation=()"],
-        "Content-Security-Policy": [
-          "default-src 'self' file: chrome-extension: moz-extension: extension:; " +
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval' file: chrome-extension: moz-extension: extension:; " +
-            "style-src 'self' 'unsafe-inline' https: file: chrome-extension: moz-extension: extension:; " +
-            "connect-src 'self' https: wss: data: file: chrome-extension: moz-extension: extension:; " +
-            "img-src 'self' https: data: blob: file: chrome-extension: moz-extension: extension:; " +
-            "font-src 'self' https: data: file: chrome-extension: moz-extension: extension:; " +
-            "media-src 'self' https: data: file: chrome-extension: moz-extension: extension:; " +
-            "frame-src 'self' https: file: chrome-extension: moz-extension: extension:; " +
-            "child-src 'self' https: file: chrome-extension: moz-extension: extension:;",
-        ],
-      },
-    });
+    // Optionally apply CSP only if explicitly enabled
+    if (process.env.SECURITY_APPLY_CSP === "true") {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          "X-Frame-Options": ["SAMEORIGIN"],
+          "X-Content-Type-Options": ["nosniff"],
+          "Referrer-Policy": ["strict-origin-when-cross-origin"],
+          "Permissions-Policy": ["camera=(), microphone=(), geolocation=()"],
+          // Keep a permissive, Electron-friendly CSP if enabled
+          "Content-Security-Policy": [
+            "default-src 'self' http: https: data: blob: file: chrome-extension: moz-extension: extension:; " +
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' http: https: file: chrome-extension: moz-extension: extension:; " +
+              "style-src 'self' 'unsafe-inline' http: https: file: chrome-extension: moz-extension: extension:; " +
+              "connect-src 'self' http: https: wss: ws: data: file: chrome-extension: moz-extension: extension:; " +
+              "img-src 'self' http: https: data: blob: file: chrome-extension: moz-extension: extension:; " +
+              "font-src 'self' http: https: data: file: chrome-extension: moz-extension: extension:; " +
+              "media-src 'self' http: https: data: file: chrome-extension: moz-extension: extension:; " +
+              "frame-src 'self' http: https: file: chrome-extension: moz-extension: extension:; " +
+              "child-src 'self' http: https: file: chrome-extension: moz-extension: extension:;",
+          ],
+        },
+      });
+    } else {
+      // Don’t set CSP at all
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          "X-Frame-Options": ["SAMEORIGIN"],
+          "X-Content-Type-Options": ["nosniff"],
+          "Referrer-Policy": ["strict-origin-when-cross-origin"],
+          "Permissions-Policy": ["camera=(), microphone=(), geolocation=()"],
+        },
+      });
+    }
   });
 
   // Configure user agent for SharePoint compatibility and OAuth
@@ -1758,10 +1776,7 @@ function createBrowserWindow(isMain: boolean = false): BrowserWindow {
   // Load the app
   if (VITE_DEV_SERVER_URL) {
     newWindow.loadURL(VITE_DEV_SERVER_URL);
-    // Open DevTools only in development
-    if (process.env.NODE_ENV === "development") {
-      newWindow.webContents.openDevTools();
-    }
+    // Do not auto-open DevTools on startup to improve launch performance
   } else {
     newWindow.loadFile(path.join(RENDERER_DIST, "index.html"));
   }
@@ -1779,59 +1794,10 @@ function createBrowserWindow(isMain: boolean = false): BrowserWindow {
   if (isMain || !mainWindow) {
     mainWindow = newWindow;
 
-    // Initialize VPN status check only for main window
-    setTimeout(async () => {
-      try {
-        // First check if VPN is already connected
-        const alreadyConnected = await checkWireGuardConnection();
+    // Defer any VPN status checking until after renderer requests it (post-auth)
 
-        if (alreadyConnected) {
-          // console.log('✅ VPN is already connected during app initialization');
-          updateVPNStatus(true);
-        } else if (process.env.VPN_AUTO_CONNECT === "true") {
-          // console.log('🔄 VPN not connected, attempting auto-connect...');
-          const connected = await connectVPN();
-          updateVPNStatus(connected);
-          if (connected) {
-            // console.log('✅ VPN auto-connected successfully');
-          } else {
-            // console.warn('⚠️ VPN auto-connect failed');
-          }
-        } else {
-          // console.log('⚠️ VPN not connected and auto-connect disabled');
-          updateVPNStatus(false);
-        }
-      } catch (error) {
-        // console.error('❌ VPN initialization error:', error);
-        updateVPNStatus(false);
-      }
-    }, 500); // Reduced delay to fix race condition
-
-    // 🇦🇺 PERIODIC AUSTRALIAN VPN VERIFICATION: Check every 30 seconds
-    setInterval(async () => {
-      try {
-        console.log("🔍 🇦🇺 Performing periodic Australian VPN verification...");
-        const isStillConnected = await checkWireGuardConnection();
-
-        if (vpnConnected !== isStillConnected) {
-          if (isStillConnected) {
-            console.log("🇦🇺 ✅ VPN connection to Australia restored");
-          } else {
-            console.log(
-              "🚨 ❌ VPN connection to Australia lost - Blocking all external requests"
-            );
-          }
-          updateVPNStatus(isStillConnected);
-        }
-      } catch (error) {
-        console.log(
-          "🚨 ❌ Periodic VPN check failed - Assuming disconnected for security"
-        );
-        if (vpnConnected) {
-          updateVPNStatus(false);
-        }
-      }
-    }, 30000); // Check every 30 seconds
+    // Note: Removed periodic Australian VPN verification to avoid repeated checks.
+    // VPN status is verified once at startup above, and can be checked on-demand.
   }
 
   newWindow.on("closed", () => {
@@ -2001,50 +1967,9 @@ ipcMain.handle("system-get-version", () => {
 });
 
 ipcMain.handle("system-get-environment", () => {
-  // Return environment variables needed by renderer in a safe way
-  const envVars = {
-    NODE_ENV: process.env.NODE_ENV,
-    APP_NAME: process.env.APP_NAME,
-    APP_VERSION: process.env.APP_VERSION,
-    VPN_PROVIDER: process.env.VPN_PROVIDER,
-    VPN_SERVER_REGION: process.env.VPN_SERVER_REGION,
-    VPN_AUTO_CONNECT: process.env.VPN_AUTO_CONNECT,
-    VPN_FAIL_CLOSED: process.env.VPN_FAIL_CLOSED,
-    WIREGUARD_CONFIG_PATH: process.env.WIREGUARD_CONFIG_PATH,
-    WIREGUARD_ENDPOINT: process.env.WIREGUARD_ENDPOINT,
-    VAULT_PROVIDER: process.env.VAULT_PROVIDER,
-    VAULT_ADDR: process.env.VAULT_ADDR,
-    VAULT_NAMESPACE: process.env.VAULT_NAMESPACE,
-    VAULT_ROLE_ID: process.env.VAULT_ROLE_ID,
-    VAULT_SECRET_ID: process.env.VAULT_SECRET_ID,
-    AWS_REGION: process.env.AWS_REGION,
-    AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID,
-    AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY,
-    AZURE_TENANT_ID: process.env.AZURE_TENANT_ID,
-    AZURE_CLIENT_ID: process.env.AZURE_CLIENT_ID,
-    AZURE_CLIENT_SECRET: process.env.AZURE_CLIENT_SECRET,
-    AZURE_VAULT_URL: process.env.AZURE_VAULT_URL,
-    OP_CONNECT_HOST: process.env.OP_CONNECT_HOST,
-    OP_CONNECT_TOKEN: process.env.OP_CONNECT_TOKEN,
-    SHAREPOINT_TENANT_URL: process.env.SHAREPOINT_TENANT_URL,
-    SHAREPOINT_BASE_URL: process.env.SHAREPOINT_BASE_URL,
-    SHAREPOINT_AUTO_LOGIN: process.env.SHAREPOINT_AUTO_LOGIN,
-    SHAREPOINT_DEFAULT_ACCESS_LEVEL:
-      process.env.SHAREPOINT_DEFAULT_ACCESS_LEVEL,
-    SHAREPOINT_DOCUMENT_LIBRARIES: process.env.SHAREPOINT_DOCUMENT_LIBRARIES,
-    MSAL_CLIENT_ID: process.env.MSAL_CLIENT_ID,
-    MSAL_TENANT_ID: process.env.MSAL_TENANT_ID,
-    MSAL_CLIENT_SECRET: process.env.MSAL_CLIENT_SECRET,
-    SECURITY_BLOCK_DOWNLOADS: process.env.SECURITY_BLOCK_DOWNLOADS,
-    SECURITY_HTTPS_ONLY: process.env.SECURITY_HTTPS_ONLY,
-    SECURITY_FAIL_CLOSED_VPN: process.env.SECURITY_FAIL_CLOSED_VPN,
-    SECURITY_BLOCK_DEVTOOLS: process.env.SECURITY_BLOCK_DEVTOOLS,
-    LEVEL1_DOMAINS: process.env.LEVEL1_DOMAINS,
-    LEVEL2_DOMAINS: process.env.LEVEL2_DOMAINS,
-    LEVEL3_ENABLED: process.env.LEVEL3_ENABLED,
-    LOG_LEVEL: process.env.LOG_LEVEL,
-    LOG_FILE_PATH: process.env.LOG_FILE_PATH,
-  };
+  // Use the environment service to get all environment variables
+  // This will retrieve values from database if use_database_env_variables is true
+  const envVars = getAllEnvVars();
 
   // console.log('🔄 Environment variables requested from renderer:', {
   //   NODE_ENV: envVars.NODE_ENV,
@@ -2057,17 +1982,18 @@ ipcMain.handle("system-get-environment", () => {
 
 // Real VPN handlers
 ipcMain.handle("vpn-get-status", async () => {
-  console.log("🔍 VPN status requested - running comprehensive check...");
-  try {
-    const isConnected = await checkWireGuardConnection();
-    const status = isConnected ? "connected" : "disconnected";
-    console.log(`📊 VPN status check result: ${status}`);
-    updateVPNStatus(isConnected);
-    return status;
-  } catch (error) {
-    console.log("❌ VPN status check error:", error);
-    return "disconnected";
-  }
+  // Return cached status immediately to avoid blocking startup/UI
+  const status = vpnConnected ? "connected" : "disconnected";
+  // Optionally verify in background without blocking
+  setImmediate(async () => {
+    try {
+      const verified = await checkWireGuardConnection();
+      if (verified !== vpnConnected) updateVPNStatus(verified);
+    } catch {
+      // ignore background verification errors
+    }
+  });
+  return status;
 });
 
 ipcMain.handle("vpn-connect", async (_event, _provider: string) => {
@@ -2594,6 +2520,43 @@ ipcMain.handle("meta-storage-get-status", async () => {
   };
 });
 
+// Allow renderer to initiate a download by URL so it flows through will-download
+ipcMain.handle(
+  "download-start-by-url",
+  async (event, args: { url: string; suggestedFilename?: string }) => {
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (!win || win.isDestroyed()) {
+        return { success: false, error: "No active window" };
+      }
+
+      // Mark this URL to auto-download locally (avoid choice dialog)
+      const ttlMs = 15000; // 15 seconds window
+      autoLocalByUrl.set(args.url, Date.now() + ttlMs);
+      // Cleanup after TTL
+      setTimeout(() => {
+        const expiry = autoLocalByUrl.get(args.url);
+        if (expiry && expiry <= Date.now()) autoLocalByUrl.delete(args.url);
+      }, ttlMs + 1000);
+
+      // Optional: suggest a filename via a header when possible; Electron mainly uses the server's headers
+      // We still pass suggestedFilename through our choice event for UI context
+      if (args.suggestedFilename) {
+        // Nothing to set directly here; filename will be used in UI when will-download fires
+      }
+
+      // Trigger the download in this window/context
+      win.webContents.downloadURL(args.url);
+      return { success: true };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : "Unknown error",
+      };
+    }
+  }
+);
+
 ipcMain.handle("meta-storage-connect", async (_event, _accessToken: string) => {
   // TODO: Implement Meta storage connection
   // This would validate the access token and store it securely
@@ -2924,6 +2887,12 @@ ipcMain.handle("window-close", async (_event, windowId?: number) => {
 
 // Initialize security configuration
 app.whenReady().then(async () => {
+  // Initialize environment service to load settings from database
+  await initEnvironmentService();
+  console.log(
+    "Environment service initialized - database variables loaded if available"
+  );
+
   // 🔐 ENHANCED USER-AGENT: Use the latest Chrome User-Agent with additional security flags
   // This makes Google OAuth recognize the app as a legitimate Chrome browser
   const secureUserAgent = [
@@ -2992,7 +2961,8 @@ app.whenReady().then(async () => {
     app.dock.setIcon(path.join(__dirname, "../build/icon.png"));
   }
 
-  await loadEnvironmentVariables();
+  // Load env and configure session quickly (non-blocking where possible)
+  loadEnvironmentVariables().catch(() => {});
   configureSecureSession();
 
   app.on(
@@ -3010,17 +2980,11 @@ app.whenReady().then(async () => {
     }
   );
 
-  console.log("🔌 Starting VPN connection...");
-  const vpnConnected = await connectVPN();
-  updateVPNStatus(vpnConnected);
-
-  if (!vpnConnected) {
-    console.log("❌ VPN connection failed - starting with restricted access");
-  } else {
-    console.log("✅ VPN connected successfully - unrestricted access enabled");
-  }
-
+  // Create the window immediately for faster perceived startup
   createWindow();
+
+  // Defer VPN connection until after authentication is confirmed by renderer
+  // The renderer will explicitly request VPN via ipc: "vpn-connect" once signed in
 });
 
 // Remove global shortcuts - they cause duplicates with before-input-event
@@ -3297,6 +3261,44 @@ process.on("SIGTERM", () => {
 
   app.quit();
 });
+
+// ---- SharePoint CORS bypass for previews/drag ----
+// Fetch binary in main process (uses Electron net with session cookies) and return base64
+ipcMain.handle(
+  "sharepoint-fetch-binary",
+  async (_event, { url }: { url: string }) => {
+    return new Promise((resolve) => {
+      try {
+        const request = net.request({ url, session: session.defaultSession });
+        const chunks: Buffer[] = [];
+        let contentType: string | undefined;
+
+        request.on("response", (response) => {
+          contentType = response.headers["content-type"]?.[0];
+          response.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+          response.on("end", () => {
+            const buf = Buffer.concat(chunks);
+            resolve({
+              success: true,
+              data: buf.toString("base64"),
+              contentType: contentType || "application/octet-stream",
+            });
+          });
+        });
+
+        request.on("error", (err) => {
+          console.error("❌ sharepoint-fetch-binary error:", err);
+          resolve({ success: false, error: err?.message || "Request failed" });
+        });
+
+        request.end();
+      } catch (error: any) {
+        console.error("❌ sharepoint-fetch-binary threw:", error);
+        resolve({ success: false, error: error?.message || "Unknown error" });
+      }
+    });
+  }
+);
 
 app.setAsDefaultProtocolClient("aussievault");
 const exchangeCodeForToken = async (code: string) => {

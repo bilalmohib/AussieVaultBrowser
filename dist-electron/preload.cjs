@@ -28,7 +28,10 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
     disconnect: () => electron.ipcRenderer.invoke("vpn-disconnect"),
     checkIP: () => electron.ipcRenderer.invoke("vpn-check-ip"),
     onStatusChange: (callback) => {
-      electron.ipcRenderer.on("vpn-status-changed", (_, status) => callback(status));
+      electron.ipcRenderer.on(
+        "vpn-status-changed",
+        (_, status) => callback(status)
+      );
     },
     removeStatusListener: () => {
       electron.ipcRenderer.removeAllListeners("vpn-status-changed");
@@ -41,7 +44,9 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
   // Download Management
   downloads: {
     chooseLocal: (downloadId) => electron.ipcRenderer.invoke("download-choose-local", downloadId),
-    chooseMeta: (downloadId) => electron.ipcRenderer.invoke("download-choose-meta", downloadId)
+    chooseMeta: (downloadId) => electron.ipcRenderer.invoke("download-choose-meta", downloadId),
+    // Start a download by URL so it goes through Electron's will-download flow
+    startByUrl: (url, suggestedFilename) => electron.ipcRenderer.invoke("download-start-by-url", { url, suggestedFilename })
   },
   // Event listeners for download events
   on: (channel, func) => {
@@ -81,7 +86,10 @@ electron.contextBridge.exposeInMainWorld("secureBrowser", {
     disconnect: () => electron.ipcRenderer.invoke("vpn-disconnect"),
     checkIP: () => electron.ipcRenderer.invoke("vpn-check-ip"),
     onStatusChange: (callback) => {
-      electron.ipcRenderer.on("vpn-status-changed", (_, status) => callback(status));
+      electron.ipcRenderer.on(
+        "vpn-status-changed",
+        (_, status) => callback(status)
+      );
     },
     removeStatusListener: () => {
       electron.ipcRenderer.removeAllListeners("vpn-status-changed");
@@ -109,7 +117,8 @@ electron.contextBridge.exposeInMainWorld("secureBrowser", {
     // Prepare temporary file for native drag
     prepareTempFile: (options) => electron.ipcRenderer.invoke("sharepoint-prepare-temp-file", options),
     // Start native drag (must be called synchronously from dragstart)
-    startDrag: (filePath) => electron.ipcRenderer.send("sharepoint-start-drag", { filePath })
+    startDrag: (filePath) => electron.ipcRenderer.send("sharepoint-start-drag", { filePath }),
+    fetchBinary: (url) => electron.ipcRenderer.invoke("sharepoint-fetch-binary", { url })
   },
   // System Information
   system: {
@@ -178,22 +187,14 @@ electron.contextBridge.exposeInMainWorld("secureBrowser", {
   contextMenu: {
     show: (params) => electron.ipcRenderer.invoke("context-menu-show", params),
     onAction: (callback) => {
-      electron.ipcRenderer.on("context-menu-action", (_, action) => callback(action));
+      electron.ipcRenderer.on(
+        "context-menu-action",
+        (_, action) => callback(action)
+      );
     },
     removeActionListener: () => {
       electron.ipcRenderer.removeAllListeners("context-menu-action");
     }
-  },
-  // Auth Operations
-  auth: {
-    startGoogleSignIn: () => electron.ipcRenderer.send("start-google-signin"),
-    onGoogleSignInSuccess: (callback) => electron.ipcRenderer.on(
-      "google-signin-success",
-      (_, userInfo) => callback(userInfo)
-    ),
-    onOAuthError: (callback) => electron.ipcRenderer.on("oauth-error", (_, error) => callback(error)),
-    removeGoogleSignInListener: () => electron.ipcRenderer.removeAllListeners("google-signin-success"),
-    removeOAuthErrorListener: () => electron.ipcRenderer.removeAllListeners("oauth-error")
   }
 });
 console.log("🔧 Preload: electronAPI exposed to window with methods:", {

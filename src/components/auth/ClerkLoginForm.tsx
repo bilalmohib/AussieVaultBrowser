@@ -12,18 +12,25 @@ import { Separator } from "../ui/separator";
 import { LoadingScreen } from "../ui/loading-screen";
 import { ErrorDisplay } from "../ui/error-display";
 import clerkAuth from "../../services/clerkService";
-import { SecureBrowserDatabaseService } from "../../services/databaseService";
+import { confirmReload } from "@/utils/reload";
+import { supabase } from "@/lib/supabase";
+
 import type { AuthState } from "../../types/clerk";
 import { Shield, Users, Lock, Chrome, Globe } from "lucide-react";
 
 interface ClerkLoginFormProps {
   onAuthSuccess: (user: any) => void;
   onAuthError: (error: string) => void;
+  onAuthStart?: () => void; // optional UI hook for showing loader
+  disableAutoDetect?: boolean; // accepted but unused (for compatibility)
 }
 
 export const ClerkLoginForm: React.FC<ClerkLoginFormProps> = ({
   onAuthSuccess,
   onAuthError,
+  onAuthStart,
+  // optional; ignored
+  disableAutoDetect: _, // Rename to underscore to avoid lint warning
 }) => {
   const [authState, setAuthState] = useState<AuthState>({
     user: null,
@@ -36,168 +43,47 @@ export const ClerkLoginForm: React.FC<ClerkLoginFormProps> = ({
   const [isSigningUp, setIsSigningUp] = useState(false);
 
   useEffect(() => {
+    let mounted = true;
+    let authChangeHandler: ((state: AuthState) => void) | null = null;
+
     const initializeClerk = async () => {
       try {
         setIsInitializing(true);
         setInitError(null);
 
-        // 🔐 CHECK GLOBAL AUTH STATE FIRST: If user is already authenticated globally, use that
-        // console.log('🔍 Checking for existing global authentication state...');
-        const globalAuthState = clerkAuth.getCurrentAuthState();
+        await clerkAuth.initialize();
+        const state = await clerkAuth.refreshAuthenticationState();
 
-        if (globalAuthState.isSignedIn && globalAuthState.user) {
-          // console.log('✅ Found existing global authentication - user already signed in!');
-          setAuthState(globalAuthState);
+        if (!mounted) return;
+        setAuthState(state);
 
-          // Notify parent immediately with existing auth
-          try {
-            // 🔐 GET EMAIL FROM CACHED STATE: Use cached user data directly
-            const userEmail =
-              globalAuthState.user.emailAddresses?.[0]?.emailAddress;
-            if (!userEmail) {
-              onAuthError("No email address found for this user");
-              return;
-            }
-            // console.log('🔍 Using cached user data for:', userEmail);
-
-            // Fetch user data from database with permissions
-            const dbUserData =
-              await SecureBrowserDatabaseService.getUserWithPermissions(
-                userEmail
-              );
-
-            if (dbUserData) {
-              // console.log('✅ Database user data loaded from cache:', dbUserData);
-              onAuthSuccess({
-                id: globalAuthState.user.id,
-                dbId: dbUserData.id,
-                name: dbUserData.name,
-                email: dbUserData.email,
-                accessLevel: dbUserData.accessLevel,
-                canEditAccessLevel: dbUserData.canEditAccessLevel,
-              });
-            } else {
-              // console.warn('⚠️ User not found in database, using Clerk defaults from cache');
-              // 🔐 USE CACHED DATA: Get user info from cached state directly
-              const firstName = globalAuthState.user.firstName || "";
-              const lastName = globalAuthState.user.lastName || "";
-              const displayName =
-                `${firstName} ${lastName}`.trim() || userEmail.split("@")[0];
-              const accessLevel =
-                (
-                  globalAuthState.user.publicMetadata as {
-                    accessLevel?: number;
-                  }
-                )?.accessLevel || 1;
-
-              onAuthSuccess({
-                id: globalAuthState.user.id,
-                name: displayName,
-                email: userEmail,
-                accessLevel: accessLevel,
-                canEditAccessLevel: false,
-                avatar: globalAuthState.user.imageUrl,
-              });
-            }
-          } catch (error) {
-            // console.error('❌ Error processing cached user data:', error);
-            // 🔐 FALLBACK WITH CACHED DATA: Use cached user data directly as fallback
-            const userEmail =
-              globalAuthState.user.emailAddresses?.[0]?.emailAddress ||
-              "unknown@example.com";
-            const firstName = globalAuthState.user.firstName || "";
-            const lastName = globalAuthState.user.lastName || "";
-            const displayName =
-              `${firstName} ${lastName}`.trim() || userEmail.split("@")[0];
-            const accessLevel =
-              (globalAuthState.user.publicMetadata as { accessLevel?: number })
-                ?.accessLevel || 1;
-
-            onAuthSuccess({
-              id: globalAuthState.user.id,
-              name: displayName,
-              email: userEmail,
-              accessLevel: accessLevel,
-              canEditAccessLevel: false,
-              avatar: globalAuthState.user.imageUrl,
-            });
-          }
-
-          setIsInitializing(false);
-          return; // Exit early - no need to initialize
+        // Only handle initial auth state if user is signed in
+        if (state.isSignedIn && state.user) {
+          handleInitialAuthState(state);
         }
 
-        // 🔐 NO EXISTING AUTH: Initialize Clerk for first time
-        // console.log('🔄 No existing authentication found - initializing Clerk...');
-        await clerkAuth.initialize();
+        // Set up listener for future auth changes - only once
+        authChangeHandler = (newState: AuthState) => {
+          if (!mounted) return;
 
-        // 🔐 REFRESH AUTH STATE: Check for session after initialization
-        // console.log('🔄 Refreshing authentication state after initialization...');
-        await clerkAuth.refreshAuthenticationState();
+          // Only update if auth state actually changed
+          setAuthState((prevState) => {
+            const stateChanged =
+              prevState.isSignedIn !== newState.isSignedIn ||
+              prevState.user?.id !== newState.user?.id;
 
-        // Set up auth state listener for future changes
-        clerkAuth.onAuthStateChange(async (state) => {
-          setAuthState(state);
-
-          // If user is signed in, notify parent
-          if (state.isSignedIn && state.user) {
-            try {
-              const userEmail = clerkAuth.getUserEmail();
-              if (!userEmail) {
-                onAuthError("No email address found for this user");
-                return;
-              }
-              // console.log('🔍 Fetching user data from database for:', userEmail);
-
-              // Fetch user data from database with permissions
-              const dbUserData =
-                await SecureBrowserDatabaseService.getUserWithPermissions(
-                  userEmail
-                );
-
-              if (dbUserData) {
-                // console.log('✅ Database user data loaded:', dbUserData);
-                onAuthSuccess({
-                  id: state.user.id,
-                  dbId: dbUserData.id,
-                  name: dbUserData.name,
-                  email: dbUserData.email,
-                  accessLevel: dbUserData.accessLevel,
-                  canEditAccessLevel: dbUserData.canEditAccessLevel,
-                });
-              } else {
-                console.warn(
-                  "⚠️ User not found in database, using Clerk defaults"
-                );
-                onAuthSuccess({
-                  id: state.user.id,
-                  name: clerkAuth.getUserDisplayName(),
-                  email: clerkAuth.getUserEmail(),
-                  accessLevel: clerkAuth.getUserAccessLevel(),
-                  canEditAccessLevel: false,
-                  avatar: state.user.imageUrl,
-                });
-              }
-            } catch (error) {
-              console.error(
-                "❌ Error fetching user data from database:",
-                error
-              );
-              // Fallback to Clerk data if database fetch fails
-              onAuthSuccess({
-                id: state.user.id,
-                name: clerkAuth.getUserDisplayName(),
-                email: clerkAuth.getUserEmail(),
-                accessLevel: clerkAuth.getUserAccessLevel(),
-                canEditAccessLevel: false,
-                avatar: state.user.imageUrl,
-              });
+            if (stateChanged && newState.isSignedIn && newState.user) {
+              handleUserSignedIn(newState);
             }
-          }
-        });
 
+            return stateChanged ? newState : prevState;
+          });
+        };
+
+        clerkAuth.onAuthStateChange(authChangeHandler);
         setIsInitializing(false);
       } catch (error) {
+        if (!mounted) return;
         console.error("Failed to initialize Clerk auth:", error);
         setInitError(
           error instanceof Error
@@ -209,38 +95,139 @@ export const ClerkLoginForm: React.FC<ClerkLoginFormProps> = ({
       }
     };
 
+    const handleInitialAuthState = async (state: AuthState) => {
+      if (!state.user) return;
+
+      const userEmail = state.user.emailAddresses?.[0]?.emailAddress;
+      if (!userEmail) {
+        onAuthError("No email address found for this user");
+        return;
+      }
+
+      try {
+        // Get user data from database including access level
+        const { data: userData, error } = await supabase
+          .from("users")
+          .select("*")
+          .eq("email", userEmail)
+          .single();
+
+        if (error && error.code !== "PGRST116") {
+          // PGRST116 = no rows found
+          console.error("Error fetching user data:", error);
+          throw new Error("Failed to fetch user data from database");
+        }
+
+        if (userData) {
+          // User exists in database, use database values
+          onAuthSuccess({
+            id: state.user.id,
+            name:
+              userData.name || state.user.fullName || userEmail.split("@")[0],
+            email: userEmail,
+            accessLevel: userData.access_level,
+            canEditAccessLevel: userData.can_edit_access_level,
+            avatar: state.user.imageUrl || "",
+          });
+        } else {
+          // New user - will be created in databaseService during initialization
+          // Default values will be used that will get updated later
+          onAuthSuccess({
+            id: state.user.id,
+            name: state.user.fullName || userEmail.split("@")[0],
+            email: userEmail,
+            accessLevel: 3, // Default to highest access level, database will override if needed
+            canEditAccessLevel: true,
+            avatar: state.user.imageUrl || "",
+          });
+        }
+      } catch (error) {
+        console.error("Error in handleInitialAuthState:", error);
+        // Fallback to minimal data if database fetch fails
+        onAuthSuccess({
+          id: state.user.id,
+          name: state.user.fullName || userEmail.split("@")[0],
+          email: userEmail,
+          accessLevel: 3, // Default to highest access level
+          canEditAccessLevel: true,
+          avatar: state.user.imageUrl || "",
+        });
+      }
+    };
+
+    const handleUserSignedIn = async (state: AuthState) => {
+      if (!state.user) return;
+
+      const userEmail = state.user.emailAddresses?.[0]?.emailAddress;
+      if (!userEmail) {
+        onAuthError("No email address found for this user");
+        return;
+      }
+
+      try {
+        // Get user data from database including access level
+        const { data: userData, error } = await supabase
+          .from("users")
+          .select("*")
+          .eq("email", userEmail)
+          .single();
+
+        if (error && error.code !== "PGRST116") {
+          // PGRST116 = no rows found
+          console.error("Error fetching user data:", error);
+          throw new Error("Failed to fetch user data from database");
+        }
+
+        if (userData) {
+          // User exists in database, use database values
+          onAuthSuccess({
+            id: state.user.id,
+            name:
+              userData.name || state.user.fullName || userEmail.split("@")[0],
+            email: userEmail,
+            accessLevel: userData.access_level,
+            canEditAccessLevel: userData.can_edit_access_level,
+            avatar: state.user.imageUrl || "",
+          });
+        } else {
+          // New user - will be created in databaseService during initialization
+          // Default values will be used that will get updated later
+          onAuthSuccess({
+            id: state.user.id,
+            name: state.user.fullName || userEmail.split("@")[0],
+            email: userEmail,
+            accessLevel: 3, // Default to highest access level, database will override if needed
+            canEditAccessLevel: true,
+            avatar: state.user.imageUrl || "",
+          });
+        }
+      } catch (error) {
+        console.error("Error in handleUserSignedIn:", error);
+        // Fallback to minimal data if database fetch fails
+        onAuthSuccess({
+          id: state.user.id,
+          name: state.user.fullName || userEmail.split("@")[0],
+          email: userEmail,
+          accessLevel: 3, // Default to highest level to ensure functionality
+          canEditAccessLevel: true,
+          avatar: state.user.imageUrl || "",
+        });
+      }
+    };
+
     initializeClerk();
 
     return () => {
-      // Cleanup listeners
-      clerkAuth.removeAuthStateListener(() => {});
-    };
-  }, [onAuthSuccess, onAuthError]);
-
-  useEffect(() => {
-    window.secureBrowser.auth.onGoogleSignInSuccess((userInfo) => {
-      onAuthSuccess({
-        id: userInfo.id,
-        name: userInfo.name,
-        email: userInfo.email,
-        accessLevel: 1,
-        avatar: userInfo.picture,
-      });
-    });
-
-    window.secureBrowser.auth.onOAuthError((error) => {
-      console.error("❌ OAuth Error:", error);
-      onAuthError("Google sign-in failed: " + error);
-    });
-
-    return () => {
-      window.secureBrowser.auth.removeGoogleSignInListener();
-      window.secureBrowser.auth.removeOAuthErrorListener();
+      mounted = false;
+      if (authChangeHandler) {
+        clerkAuth.removeAuthStateListener(authChangeHandler);
+      }
     };
   }, [onAuthSuccess, onAuthError]);
 
   const handleSignIn = async () => {
     try {
+      onAuthStart?.();
       setIsSigningIn(true);
       // console.log('🔐 Opening Clerk sign-in modal...');
       await clerkAuth.signIn();
@@ -259,6 +246,7 @@ export const ClerkLoginForm: React.FC<ClerkLoginFormProps> = ({
 
   const handleSignUp = async () => {
     try {
+      onAuthStart?.();
       setIsSigningUp(true);
       // console.log('🔐 Opening Clerk sign-up modal...');
       await clerkAuth.signUp();
@@ -303,7 +291,14 @@ export const ClerkLoginForm: React.FC<ClerkLoginFormProps> = ({
             critical: true,
           },
         ]}
-        onRetry={() => window.location.reload()}
+        onRetry={async () => {
+          const ok = await confirmReload({
+            title: "Reload authentication?",
+            message:
+              "Reloading can help recover from auth initialization errors.",
+          });
+          if (ok) window.location.reload();
+        }}
       />
     );
   }
@@ -429,18 +424,6 @@ export const ClerkLoginForm: React.FC<ClerkLoginFormProps> = ({
                     Create new account
                   </div>
                 )}
-              </Button>
-
-              <Separator className="my-4" />
-
-              <Button
-                onClick={() => window.secureBrowser.auth.startGoogleSignIn()}
-                className="w-full h-12 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
-              >
-                <div className="flex items-center gap-2">
-                  <Chrome className="w-4 h-4" />
-                  Sign in with Google
-                </div>
               </Button>
 
               {/* Features List */}

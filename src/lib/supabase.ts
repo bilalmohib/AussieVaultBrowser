@@ -331,6 +331,27 @@ export class DatabaseService {
       return []
     }
   }
+  
+  // Get a specific system setting by key
+  static async getSystemSettingByKey(key: string): Promise<string | null> {
+    try {
+      const { data, error } = await supabase
+        .from('system_settings')
+        .select('value')
+        .eq('key', key)
+        .single()
+        
+      if (error) {
+        // console.error(`Error fetching system setting for key ${key}:`, error)
+        return null
+      }
+      
+      return data?.value || null
+    } catch (error) {
+      // console.error(`Exception in getSystemSettingByKey for key ${key}:`, error)
+      return null
+    }
+  }
 
   static async updateSystemSetting(key: string, value: string, updatedBy?: number): Promise<boolean> {
     try {

@@ -7,7 +7,8 @@ CREATE TYPE access_level_enum AS ENUM ('1', '2', '3');
 CREATE TYPE user_status_enum AS ENUM ('active', 'suspended', 'inactive');
 CREATE TYPE vpn_status_enum AS ENUM ('connected', 'disconnected', 'failed', 'reconnecting');
 CREATE TYPE event_severity_enum AS ENUM ('low', 'medium', 'high', 'critical');
-CREATE TYPE setting_category_enum AS ENUM ('vpn', 'security', 'general', 'sharepoint');
+CREATE TYPE setting_category_enum AS ENUM ('vpn', 'security', 'general', 'sharepoint', 'vault');
+CREATE TYPE env_category_enum AS ENUM ('application', 'security', 'vpn', 'vault', 'sharepoint', 'access_control', 'logging', 'system', 'integration');
 
 -- Users table for Secure Remote Browser
 CREATE TABLE users (
@@ -185,6 +186,27 @@ CREATE TABLE system_settings (
 CREATE INDEX idx_system_settings_category ON system_settings(category);
 CREATE INDEX idx_system_settings_key ON system_settings(key);
 
+-- Environment Variables table for application configuration
+CREATE TABLE environment_variables (
+    id BIGSERIAL PRIMARY KEY,
+    key TEXT UNIQUE NOT NULL,
+    value TEXT NOT NULL,
+    category env_category_enum NOT NULL,
+    description TEXT,
+    is_secret BOOLEAN NOT NULL DEFAULT false,
+    is_editable BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_by BIGINT REFERENCES users(id),
+    
+    -- Constraints
+    CONSTRAINT environment_variables_key_check CHECK (key ~ '^[A-Z0-9_]+$')
+);
+
+-- Create indexes for environment_variables table
+CREATE INDEX idx_environment_variables_category ON environment_variables(category);
+CREATE INDEX idx_environment_variables_key ON environment_variables(key);
+
 -- Bookmarks table for user bookmark management
 CREATE TABLE bookmarks (
     id BIGSERIAL PRIMARY KEY,
@@ -237,7 +259,10 @@ CREATE TRIGGER update_system_settings_updated_at
     BEFORE UPDATE ON system_settings 
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Add updated_at trigger for bookmarks
+CREATE TRIGGER update_environment_variables_updated_at 
+    BEFORE UPDATE ON environment_variables 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 CREATE TRIGGER update_bookmarks_updated_at 
     BEFORE UPDATE ON bookmarks 
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -255,23 +280,90 @@ INSERT INTO access_levels (level, name, description, allowed_domains, max_window
 
 -- Insert default system settings
 INSERT INTO system_settings (key, value, category, description) VALUES
-('vpn_provider', 'wireguard', 'vpn', 'Default VPN provider'),
-('vpn_endpoint', '134.199.169.102:59926', 'vpn', 'VPN server endpoint'),
-('vpn_server_region', 'australia', 'vpn', 'VPN server region'),
-('vpn_auto_connect', 'true', 'vpn', 'Automatically connect to VPN on startup'),
-('vpn_fail_closed', 'true', 'vpn', 'Block browser access if VPN fails'),
+-- Add a setting to control environment variable source (local .env or database)
+('use_database_env_variables', 'false', 'general', 'When true, use database environment variables instead of local .env file');
 
-('security_block_downloads', 'true', 'security', 'Block all file downloads'),
-('security_https_only', 'true', 'security', 'Force HTTPS connections only'),
-('security_block_devtools', 'true', 'security', 'Block developer tools access'),
+-- Insert default environment variables
+-- Application settings
+INSERT INTO environment_variables (key, value, category, description, is_editable) VALUES
+('NODE_ENV', 'development', 'application', 'Node environment (development, production, test)', true),
+('APP_NAME', 'Secure Remote Browser', 'application', 'Application name', true),
+('APP_VERSION', '1.0.0', 'application', 'Application version number', true),
+('NEXT_PUBLIC_APP_URL', 'http://localhost:5173', 'application', 'Public application URL', true);
 
-('sharepoint_tenant_url', 'https://datalifesaver.sharepoint.com', 'sharepoint', 'Primary SharePoint tenant URL'),
-('sharepoint_auto_login', 'true', 'sharepoint', 'Enable automatic SharePoint login'),
-('sharepoint_default_access_level', '1', 'sharepoint', 'Default user access level'),
+-- Security settings
+INSERT INTO environment_variables (key, value, category, description, is_editable) VALUES
+('SECURITY_BLOCK_DOWNLOADS', 'false', 'security', 'Block all file downloads when true', true),
+('SECURITY_HTTPS_ONLY', 'false', 'security', 'Force HTTPS connections only when true', true),
+('SECURITY_FAIL_CLOSED_VPN', 'true', 'security', 'Block browser access if VPN fails when true', true),
+('SECURITY_BLOCK_DEVTOOLS', 'false', 'security', 'Block developer tools access when true', true);
 
-('log_level', 'info', 'general', 'Application logging level'),
-('session_timeout_warning', '300', 'general', 'Session timeout warning (seconds)'),
-('max_concurrent_sessions', '3', 'general', 'Maximum concurrent sessions per user');
+-- VPN configuration
+INSERT INTO environment_variables (key, value, category, description, is_editable) VALUES
+('VPN_PROVIDER', 'wireguard', 'vpn', 'VPN provider (wireguard, nordlayer, expressvpn)', true),
+('VPN_SERVER_REGION', 'australia', 'vpn', 'VPN server region', true),
+('VPN_AUTO_CONNECT', 'true', 'vpn', 'Automatically connect to VPN on startup', true),
+('VPN_FAIL_CLOSED', 'true', 'vpn', 'Block browser access if VPN fails', true),
+('WIREGUARD_CONFIG_PATH', './config/wireguard-australia.conf', 'vpn', 'Path to WireGuard configuration file', true),
+('WIREGUARD_ENDPOINT', '134.199.169.102:59926', 'vpn', 'WireGuard server endpoint', true);
+
+-- Vault configuration
+INSERT INTO environment_variables (key, value, category, description, is_editable) VALUES
+('VAULT_PROVIDER', '1password-cli', 'vault', 'Password vault provider', true),
+('OP_SERVICE_ACCOUNT_TOKEN', 'ops_eyJzaWduUSW5BZGRyZXNzljolbXtu', 'vault', '1Password service account token', true),
+('OP_SHAREPOINT_ITEM_ID', 'by6jl6jiv4iiimfn56pcs72yamiq6ihxus2lx43taaei4d7ph2li', 'vault', '1Password SharePoint item ID', true),
+('ONEPASSWORD_EXTENSION_ENABLED', 'true', 'vault', 'Enable 1Password browser extension integration', true),
+('ONEPASSWORD_AUTO_DETECT', 'true', 'vault', 'Auto-detect 1Password browser extension', true),
+('ONEPASSWORD_EXTENSION_ID', 'aeblfdkhhhdcdjpifhhbdiojplfjncoa', 'vault', '1Password browser extension ID', true);
+
+-- SharePoint configuration
+INSERT INTO environment_variables (key, value, category, description, is_editable) VALUES
+('SHAREPOINT_TENANT_URL', 'https://datalifesaver.sharepoint.com', 'sharepoint', 'SharePoint tenant URL', true),
+('SHAREPOINT_AUTO_LOGIN', 'true', 'sharepoint', 'Enable automatic SharePoint login', true),
+('SHAREPOINT_DEFAULT_ACCESS_LEVEL', '1', 'sharepoint', 'Default user access level', true),
+('SHAREPOINT_DOCUMENT_LIBRARIES', 'https://datalifesaver.sharepoint.com/Shared%20Documents/Forms/AllItems.aspx', 'sharepoint', 'SharePoint document libraries URL', true),
+('SHAREPOINT_BASE_URL', 'flowuxart.sharepoint.com', 'sharepoint', 'SharePoint base URL', true);
+
+-- Access control levels
+INSERT INTO environment_variables (key, value, category, description, is_editable) VALUES
+('LEVEL1_DOMAINS', 'datalifesaver.sharepoint.com,sharepoint.com,onedrive.com,office365.com,sharepointonline.com', 'access_control', 'Level 1 allowed domains (SharePoint only)', true),
+('LEVEL2_DOMAINS', 'microsoft.com,office.com,msn.com,live.com,microsoftonline.com', 'access_control', 'Level 2 allowed domains (SharePoint + Microsoft)', true),
+('LEVEL3_ENABLED', 'true', 'access_control', 'Enable Level 3 full browsing through VPN', true);
+
+-- Logging settings
+INSERT INTO environment_variables (key, value, category, description, is_editable) VALUES
+('LOG_LEVEL', 'info', 'logging', 'Application logging level', true),
+('LOG_FILE_PATH', './logs/app.log', 'logging', 'Path to log file', true);
+
+-- MSAL credentials
+INSERT INTO environment_variables (key, value, category, description, is_editable) VALUES
+('MSAL_CLIENT_ID', '377bf11f-974a-4475-98f7-d0e54649f4a3', 'integration', 'Microsoft Authentication Library client ID', true),
+('MSAL_TENANT_ID', '6c1f4a54-1535-4634-a2ae-32230b4cb3f4', 'integration', 'Microsoft Authentication Library tenant ID', true),
+('MSAL_REDIRECT_URI', 'http://localhost', 'integration', 'Microsoft Authentication Library redirect URI', true),
+('MSAL_CLIENT_SECRET', 'yRZ8Q~Q-wVKNPvCZJM6f5dWjyvdnm2~imOULTbZC', 'integration', 'Microsoft Authentication Library client secret', true);
+
+-- Google OAuth credentials
+INSERT INTO environment_variables (key, value, category, description, is_editable) VALUES
+('GOOGLE_CLIENT_ID', '913329095431-n5uip0t9lakec7k96mBjuo07q85ocbv5.apps.googleusercontent.com', 'integration', 'Google OAuth client ID', true),
+('GOOGLE_CLIENT_SECRET', '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', 'integration', 'Google OAuth client secret', true);
+
+-- Supabase credentials
+INSERT INTO environment_variables (key, value, category, description, is_editable) VALUES
+('NEXT_PUBLIC_SUPABASE_URL', 'https://nppuvwyqoohvypfcmuib.supabase.co', 'integration', 'Supabase project URL', true),
+('NEXT_PUBLIC_SUPABASE_ANON_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5wcHV2d3lxb29odnlwZmNtdWliIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIyMzg4MzAsImV4cCI6MjA2NzgxNDgzMH0.VR6Nour7ctDxnsJwSCF93WkaYL25LEbx3uEoCzFcKRs', 'integration', 'Supabase anonymous key', true),
+('SUPABASE_SERVICE_ROLE_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5wcHV2d3lxb29odnlwZmNtdWliIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MjIzODgzMCwiZXhwIjoyMDY3ODE0ODMwfQ.eKjYeTzjyhLDtzD6yMUpll9Gh4q9VqwKE591ulSCKyQ', 'integration', 'Supabase service role key', true);
+
+-- Clerk Authentication
+INSERT INTO environment_variables (key, value, category, description, is_editable) VALUES
+('NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY', 'pk_test_bWFqb3Itc25pcGUtOS5jbGVyay5hY2NvdW50cy5kZXYk', 'integration', 'Clerk publishable key', true),
+('CLERK_SECRET_KEY', 'sk_test_kUjISBXa6tf1YkfmZkDTYyPeQ0OP1jr0KdS5Bxjnbb', 'integration', 'Clerk secret key', true);
+
+-- Mark secrets as secret but still editable
+UPDATE environment_variables SET is_secret = true WHERE 
+    key LIKE '%KEY' OR 
+    key LIKE '%SECRET%' OR 
+    key LIKE '%PASSWORD%' OR 
+    key LIKE '%TOKEN%';
 
 -- Row Level Security Policies
 -- Note: Since we're using Clerk authentication, we'll implement basic RLS without auth.email()
@@ -328,10 +420,14 @@ CREATE POLICY "Allow authenticated access to bookmarks" ON bookmarks
     FOR ALL USING (true);
 
 -- System Settings policies
-ALTER TABLE system_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE system_settings DISABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Allow read access to system_settings" ON system_settings
-    FOR SELECT USING (true);
+-- Environment Variables policies
+ALTER TABLE environment_variables ENABLE ROW LEVEL SECURITY;
+
+-- Only allow admins to view/edit environment variables
+CREATE POLICY "Allow service role access to environment_variables" ON environment_variables
+    FOR ALL USING (true);
 
 -- Create helpful views
 CREATE VIEW user_activity AS
@@ -370,6 +466,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE vpn_connections;
 ALTER PUBLICATION supabase_realtime ADD TABLE navigation_logs;
 ALTER PUBLICATION supabase_realtime ADD TABLE browsing_history;
 ALTER PUBLICATION supabase_realtime ADD TABLE bookmarks;
+ALTER PUBLICATION supabase_realtime ADD TABLE environment_variables;
 
 -- Grant permissions for authenticated users
 GRANT SELECT, INSERT, UPDATE ON users TO authenticated;
@@ -380,7 +477,8 @@ GRANT SELECT, INSERT ON navigation_logs TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON browsing_history TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON bookmarks TO authenticated;
 GRANT SELECT ON access_levels TO authenticated;
-GRANT SELECT ON system_settings TO authenticated;
+GRANT SELECT, UPDATE ON system_settings TO authenticated;
+GRANT SELECT, INSERT, UPDATE ON environment_variables TO authenticated;
 
 -- Grant permissions for service role (for admin operations)
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
@@ -388,6 +486,8 @@ GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 -- Grant usage on sequences for auto-increment IDs
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authenticated;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO service_role;
+GRANT USAGE, SELECT ON SEQUENCE environment_variables_id_seq TO authenticated;
+GRANT USAGE, SELECT ON SEQUENCE environment_variables_id_seq TO service_role;
 
 -- Comments for documentation
 COMMENT ON TABLE users IS 'Secure Remote Browser user accounts with access control';
@@ -399,3 +499,92 @@ COMMENT ON TABLE navigation_logs IS 'User browsing activity and access control l
 COMMENT ON TABLE browsing_history IS 'Chrome-like browsing history with local and cloud sync';
 COMMENT ON TABLE bookmarks IS 'User bookmarks with categorization and access control';
 COMMENT ON TABLE system_settings IS 'Application configuration and system settings'; 
+COMMENT ON TABLE environment_variables IS 'Application environment variables with categorization and access control';
+
+-- Migration script function to move environment variables from system_settings to environment_variables
+-- This will execute on schema load if both tables exist
+DO $$
+BEGIN
+    -- Create a temporary mapping table for category conversion
+    CREATE TEMPORARY TABLE IF NOT EXISTS category_mapping (
+        old_category TEXT,
+        new_category TEXT
+    );
+
+    -- Insert category mappings
+    INSERT INTO category_mapping (old_category, new_category) VALUES
+    ('vpn', 'vpn'),
+    ('security', 'security'),
+    ('general', 'application'),
+    ('sharepoint', 'sharepoint'),
+    ('vault', 'vault');
+
+    -- Migrate environment variables from system_settings to environment_variables if they exist
+    INSERT INTO environment_variables (
+        key, 
+        value, 
+        category, 
+        description, 
+        is_secret, 
+        is_editable
+    )
+    SELECT 
+        UPPER(s.key), 
+        s.value, 
+        (SELECT new_category FROM category_mapping WHERE old_category = s.category::text)::env_category_enum, 
+        s.description,
+        CASE 
+            WHEN s.key LIKE '%KEY' OR s.key LIKE '%SECRET%' OR s.key LIKE '%PASSWORD%' OR s.key LIKE '%TOKEN%' THEN true
+            ELSE false
+        END,
+        true
+    FROM system_settings s
+    WHERE LOWER(s.key) IN (
+        'vpn_provider', 
+        'vpn_endpoint', 
+        'vpn_server_region', 
+        'vpn_auto_connect', 
+        'vpn_fail_closed', 
+        'security_block_downloads', 
+        'security_https_only', 
+        'security_block_devtools',
+        'log_level',
+        'session_timeout_warning',
+        'max_concurrent_sessions',
+        'sharepoint_tenant_url',
+        'sharepoint_auto_login',
+        'sharepoint_default_access_level',
+        'vault_integration_enabled'
+    )
+    -- Skip if key already exists in environment_variables to prevent duplicates
+    AND NOT EXISTS (
+        SELECT 1 FROM environment_variables WHERE key = UPPER(s.key)
+    )
+    ON CONFLICT (key) DO NOTHING;
+
+    -- Delete migrated environment variables from system_settings
+    DELETE FROM system_settings
+    WHERE LOWER(key) IN (
+        'vpn_provider', 
+        'vpn_endpoint', 
+        'vpn_server_region', 
+        'vpn_auto_connect', 
+        'vpn_fail_closed', 
+        'security_block_downloads', 
+        'security_https_only', 
+        'security_block_devtools',
+        'log_level',
+        'session_timeout_warning',
+        'max_concurrent_sessions',
+        'sharepoint_tenant_url',
+        'sharepoint_auto_login',
+        'sharepoint_default_access_level',
+        'vault_integration_enabled'
+    );
+
+    -- Clean up temporary table
+    DROP TABLE IF EXISTS category_mapping;
+
+    RAISE NOTICE 'Environment variable migration complete.';
+END
+$$;

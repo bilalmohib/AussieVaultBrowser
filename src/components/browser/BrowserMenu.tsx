@@ -9,22 +9,22 @@ import {
   DropdownMenuLabel,
   DropdownMenuShortcut,
 } from '@/components/ui/dropdown-menu';
-import { 
-  MoreVertical, 
-  History, 
-  Download, 
-  Bookmark, 
-  Settings, 
-  HelpCircle, 
-  Info, 
-  LogOut, 
-  User, 
-  Shield, 
-  Zap, 
-  Globe, 
-  RefreshCw, 
+import {
+  MoreVertical,
+  History,
+  Download,
+  Bookmark,
+  Settings,
+  HelpCircle,
+  Info,
+  LogOut,
+  User,
+  Shield,
+  Zap,
+  Globe,
+  RefreshCw,
   Archive,
-  File
+  File,
 } from 'lucide-react';
 
 interface BrowserMenuProps {
@@ -170,6 +170,8 @@ const BrowserMenu: React.FC<BrowserMenuProps> = ({
             <span className="text-blue-700 font-medium">SharePoint Files</span>
           </DropdownMenuItem>
         )}
+
+        {/* Google Drive Uploads removed */}
 
         <DropdownMenuSeparator className="my-2 bg-slate-100" />
 

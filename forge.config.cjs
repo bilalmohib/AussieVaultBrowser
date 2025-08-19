@@ -1,13 +1,13 @@
-const { FusesPlugin } = require('@electron-forge/plugin-fuses');
-const { FuseV1Options, FuseVersion } = require('@electron/fuses');
+const { FusesPlugin } = require("@electron-forge/plugin-fuses");
+const { FuseV1Options, FuseVersion } = require("@electron/fuses");
 
 module.exports = {
   packagerConfig: {
     asar: true,
-    name: 'Aussie Vault Browser',
-    appBundleId: 'com.aussievault.browser',
-    executableName: 'Aussie Vault Browser',
-    icon: 'build/icon', // This will automatically pick .icns for macOS, .ico for Windows, .png for Linux
+    name: "Aussie Vault Browser",
+    appBundleId: "com.aussievault.browser",
+    executableName: "Aussie Vault Browser",
+    icon: "build/icon", // This will automatically pick .icns for macOS, .ico for Windows, .png for Linux
     // Support multiple architectures
     osxUniversal: {
       mergeASARs: false,
@@ -16,59 +16,57 @@ module.exports = {
     osxSign: false,
     osxNotarize: false,
     // Additional options for builds
-    ignore: [
-      /\.DS_Store$/,
-      /node_modules/
-    ],
+    ignore: [/\.DS_Store$/, /node_modules/],
   },
   rebuildConfig: {},
   makers: [
     {
-      name: '@electron-forge/maker-squirrel',
-              config: {
-        name: 'aussie_vault_browser',
-        authors: 'Versatile Technologies',
-        description: 'Aussie Vault Browser with VPN capabilities and 1Password integration'
-      }
-    },
-    {
-      name: '@electron-forge/maker-zip',
-      platforms: ['darwin'],
+      name: "@electron-forge/maker-squirrel",
       config: {
-        name: 'AussieVaultBrowser-{{version}}-{{arch}}.zip'
-      }
+        name: "aussie_vault_browser",
+        authors: "Versatile Technologies",
+        description:
+          "Aussie Vault Browser with VPN capabilities and 1Password integration",
+      },
     },
     {
-      name: '@electron-forge/maker-dmg',
-      config: {}
+      name: "@electron-forge/maker-zip",
+      platforms: ["darwin"],
+      config: {
+        name: "AussieVaultBrowser-{{version}}-{{arch}}.zip",
+      },
     },
     {
-      name: '@electron-forge/maker-deb',
-      config: {}
+      name: "@electron-forge/maker-dmg",
+      config: {},
     },
     {
-      name: '@electron-forge/maker-rpm',
-      config: {}
-    }
+      name: "@electron-forge/maker-deb",
+      config: {},
+    },
+    {
+      name: "@electron-forge/maker-rpm",
+      config: {},
+    },
   ],
   publishers: [
     {
-      name: '@electron-forge/publisher-github',
+      name: "@electron-forge/publisher-github",
       config: {
         repository: {
-          owner: 'bilalmohib',           
-          name: 'AussieVaultBrowser',    
+          owner: "bilalmohib",
+          name: "AussieVaultBrowser",
         },
         prerelease: false,
         draft: false,
         generateReleaseNotes: true,
-        tagPrefix: 'v'
-      }
-    }
+        tagPrefix: "v",
+      },
+    },
   ],
   plugins: [
     {
-      name: '@electron-forge/plugin-auto-unpack-natives',
+      name: "@electron-forge/plugin-auto-unpack-natives",
       config: {},
     },
     new FusesPlugin({

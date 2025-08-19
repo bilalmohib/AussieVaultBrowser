@@ -55,7 +55,6 @@ interface BrowserWindowProps {
 }
 
 const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
-
   const {
     vpnStatus,
     allowBrowsing,
@@ -68,10 +67,12 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
     actualIP,
     actualCountry,
   } = useVPN(user?.accessLevel);
-  
+
   // Wait for user to be loaded before setting default URL
-  const defaultUrl = user?.accessLevel ? getDefaultUrl(user.accessLevel) : "https://www.google.com";
-  
+  const defaultUrl = user?.accessLevel
+    ? getDefaultUrl(user.accessLevel)
+    : "https://www.google.com";
+
   const [tabs, setTabs] = useState<Tab[]>([
     {
       id: "1",
@@ -81,16 +82,19 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
     },
   ]);
   const [activeTab, setActiveTab] = useState("1");
-  
+
   // Enhanced setActiveTab that also syncs URL bar
-  const setActiveTabWithSync = useCallback((tabId: string) => {
-    setActiveTab(tabId);
-    // Immediately sync URL bar with the new active tab
-    const tab = tabs.find(t => t.id === tabId);
-    if (tab && tab.url) {
-      setUrlInput(tab.url);
-    }
-  }, [tabs]);
+  const setActiveTabWithSync = useCallback(
+    (tabId: string) => {
+      setActiveTab(tabId);
+      // Immediately sync URL bar with the new active tab
+      const tab = tabs.find((t) => t.id === tabId);
+      if (tab && tab.url) {
+        setUrlInput(tab.url);
+      }
+    },
+    [tabs]
+  );
   const [urlInput, setUrlInput] = useState(defaultUrl);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [isDownloadsModalOpen, setIsDownloadsModalOpen] = useState(false);
@@ -99,6 +103,7 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
   const [isDebugAuthModalOpen, setIsDebugAuthModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isSharePointSidebarOpen, setIsSharePointSidebarOpen] = useState(false);
+  // Google Drive removed
   const [zoomLevel, setZoomLevel] = useState(100);
   const [contextMenu, setContextMenu] = useState<{
     visible: boolean;
@@ -240,19 +245,24 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
   useEffect(() => {
     if (user?.accessLevel) {
       const newDefaultUrl = getDefaultUrl(user.accessLevel);
-      
+
       // Update the first tab if it's still on the old default URL
-      setTabs(prevTabs => 
-        prevTabs.map((tab, index) => 
-          index === 0 && (tab.url === "https://www.google.com" || tab.url.includes("office.com"))
+      setTabs((prevTabs) =>
+        prevTabs.map((tab, index) =>
+          index === 0 &&
+          (tab.url === "https://www.google.com" ||
+            tab.url.includes("office.com"))
             ? { ...tab, url: newDefaultUrl }
             : tab
         )
       );
-      
+
       // Update URL input if it matches the old default (using functional update)
-      setUrlInput(prevUrlInput => {
-        if (prevUrlInput === "https://www.google.com" || prevUrlInput.includes("office.com")) {
+      setUrlInput((prevUrlInput) => {
+        if (
+          prevUrlInput === "https://www.google.com" ||
+          prevUrlInput.includes("office.com")
+        ) {
           return newDefaultUrl;
         }
         return prevUrlInput;
@@ -262,7 +272,7 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
 
   // Sync URL bar with active tab's current URL
   useEffect(() => {
-    const activeTabData = tabs.find(tab => tab.id === activeTab);
+    const activeTabData = tabs.find((tab) => tab.id === activeTab);
     if (activeTabData && activeTabData.url && activeTabData.url !== urlInput) {
       setUrlInput(activeTabData.url);
     }
@@ -436,10 +446,10 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
 
             webview
               .executeJavaScript(jsCode)
-              .then((result: any) => {
+              .then((_result: any) => {
                 // console.log(`✅ [ZOOM] executeJavaScript result:`, result);
               })
-              .catch((error: any) => {
+              .catch((_error: any) => {
                 // console.error(`❌ [ZOOM] executeJavaScript failed:`, error);
               });
             applied = true;
@@ -571,10 +581,10 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
             })();
           `
             )
-            .then((result: any) => {
+            .then((_result: any) => {
               // console.log('✅ [ZOOM] JavaScript execution result:', result);
             })
-            .catch((error: any) => {
+            .catch((_error: any) => {
               // console.error('❌ [ZOOM] JavaScript execution failed:', error);
             });
         }
@@ -621,7 +631,7 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
       const timeoutId = setTimeout(() => {
         applyZoomToActiveWebview(zoomLevel);
       }, 1000);
-      
+
       return () => clearTimeout(timeoutId);
     }
   }, [
@@ -778,7 +788,6 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
 
     // LEVEL 3 USERS: SKIP ALL VALIDATION INCLUDING VPN - Navigate immediately like Chrome
     if (user?.accessLevel === 3) {
-      
       // Update tab state immediately
       setTabs((tabs) =>
         tabs.map((tab) =>
@@ -793,7 +802,7 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
         )
       );
 
-      // Update URL input immediately  
+      // Update URL input immediately
       setUrlInput(finalUrl);
 
       // Let React handle the webview src update automatically via the src={tab.url} prop
@@ -801,7 +810,7 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
     }
 
     // For Level 1 and 2 users, do the normal validation including VPN check
-    
+
     // Block navigation if VPN is not connected (fail-closed behavior for Level 1 & 2)
     if (!allowBrowsing) {
       // Log blocked navigation due to VPN
@@ -901,7 +910,7 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
     if (webview) {
       // For search queries, set a more descriptive title immediately
       const newTitle = isSearchQuery ? `Search: ${urlInput}` : "Loading...";
-      
+
       // Update tab state with the final URL
       setTabs((tabs) =>
         tabs.map((tab) =>
@@ -1177,7 +1186,7 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
   }, []);
 
   const revealInExplorer = useCallback(
-    async (filePath: string, filename: string) => {
+    async (filePath: string, _filename: string) => {
       try {
         // console.log("📂 Revealing file in explorer:", { filePath, filename });
 
@@ -1269,12 +1278,9 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
 
     const handleDownloadProgress = (_event: any, progressData: any) => {
       try {
-        const percent =
-          progressData.totalBytes > 0
-            ? Math.round(
-                (progressData.receivedBytes / progressData.totalBytes) * 100
-              )
-            : 0;
+        Math.round(
+          (progressData.receivedBytes / progressData.totalBytes) * 100
+        );
         // console.log("🎯 [REACT] Download progress event received:", {
         //   id: progressData.id,
         //   progress: progressData.receivedBytes + "/" + progressData.totalBytes,
@@ -1431,7 +1437,7 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
           .then(() => {
             // console.log("✅ [REACT] IPC connection test successful")
           })
-          .catch((err) => {
+          .catch((_err) => {
             // console.warn("⚠️ [REACT] IPC connection test failed:", err)
           });
       } else {
@@ -1619,7 +1625,7 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
       const timeoutId = setTimeout(() => {
         applyZoomToActiveWebview(zoomLevel);
       }, 200); // Balanced delay for responsiveness without conflicts
-      
+
       return () => clearTimeout(timeoutId);
     }
   }, [activeTab, applyZoomToActiveWebview, zoomLevel]);
@@ -1723,7 +1729,7 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
         if (tabId === activeTab) {
           setUrlInput(webviewEvent.url);
         }
-        
+
         // Update tab URL without affecting loading state
         setTabs((tabs) =>
           tabs.map((tab) =>
@@ -1749,7 +1755,7 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
           setTimeout(async () => {
             try {
               await injectSharePointCredentials(webview);
-              
+
               // Log successful credential injection
               SecureBrowserDatabaseService.logSecurityEvent(
                 "unauthorized_access",
@@ -1789,8 +1795,6 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
         );
       });
 
-
-
       // Handle new-window events - COMPLETELY DISABLED FOR LEVEL 3 USERS
       webview.addEventListener("new-window", (event: Event) => {
         const newWindowEvent = event as Event & {
@@ -1804,10 +1808,10 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
           // Don't prevent anything - let it work like a normal browser
           return;
         }
-        
+
         // Only block for Level 1 and 2 users
         event.preventDefault();
-        
+
         // Log that we blocked a popup attempt
         SecureBrowserDatabaseService.logSecurityEvent(
           "unauthorized_access",
@@ -1974,7 +1978,7 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
           handleTaskManagerClick();
           break;
         default:
-          // console.log("⚠️ [IPC] Unknown shortcut:", shortcut);
+        // console.log("⚠️ [IPC] Unknown shortcut:", shortcut);
       }
     };
 
@@ -2110,10 +2114,10 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
             case "i":
               event.preventDefault();
               event.stopPropagation();
-                // console.log(
-                //   "⌨️ [FALLBACK] Developer tools triggered (Ctrl+Shift+I)"
-                // );
-                // TODO: Implement developer tools
+              // console.log(
+              //   "⌨️ [FALLBACK] Developer tools triggered (Ctrl+Shift+I)"
+              // );
+              // TODO: Implement developer tools
               handled = true;
               break;
             case "t":
@@ -2183,10 +2187,10 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
         capture: true,
       });
 
-        // console.log(
-        //   "🔧 [KEYBOARD] Event listeners attached, IPC support:",
-        //   !!window.secureBrowser?.on
-        // );
+      // console.log(
+      //   "🔧 [KEYBOARD] Event listeners attached, IPC support:",
+      //   !!window.secureBrowser?.on
+      // );
     };
 
     const removeListeners = () => {
@@ -2654,9 +2658,11 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
 
                 // For Level 1 and 2 users, do the normal checks
                 const shouldShowVPN = !allowBrowsing;
-                const shouldShowLoader = isCheckingStatus || (tab.isLoading && !tab.url.startsWith("http"));
+                const shouldShowLoader =
+                  isCheckingStatus ||
+                  (tab.isLoading && !tab.url.startsWith("http"));
                 const shouldShowRestriction = !isUrlAllowed(tab.url);
-                
+
                 if (shouldShowVPN) {
                   return (
                     <div className="overflow-y-auto max-h-[70vh]">
@@ -2667,7 +2673,8 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
                         isRetrying={isConnecting}
                         isChecking={isCheckingStatus}
                         errorDetails={
-                          lastError || `WireGuard endpoint: ${connection.endpoint}`
+                          lastError ||
+                          `WireGuard endpoint: ${connection.endpoint}`
                         }
                         actualIP={actualIP}
                         actualCountry={actualCountry}
@@ -2675,104 +2682,106 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
                     </div>
                   );
                 }
-                
+
                 if (shouldShowLoader) {
                   return (
-                /* Show beautiful loader while determining permissions or loading */
-                <div className="flex-1 flex items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50 min-h-full">
-                  <div className="text-center">
-                    {/* Beautiful animated loader */}
-                    <div className="relative mb-8">
-                      {/* Outer rotating ring */}
-                      <div className="w-20 h-20 border-4 border-blue-200 rounded-full animate-spin mx-auto">
-                        <div className="w-16 h-16 border-4 border-transparent border-t-blue-600 rounded-full animate-spin"></div>
-                      </div>
-                      {/* Inner pulsing dot */}
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="w-3 h-3 bg-blue-600 rounded-full animate-pulse"></div>
-                      </div>
-                    </div>
+                    /* Show beautiful loader while determining permissions or loading */
+                    <div className="flex-1 flex items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50 min-h-full">
+                      <div className="text-center">
+                        {/* Beautiful animated loader */}
+                        <div className="relative mb-8">
+                          {/* Outer rotating ring */}
+                          <div className="w-20 h-20 border-4 border-blue-200 rounded-full animate-spin mx-auto">
+                            <div className="w-16 h-16 border-4 border-transparent border-t-blue-600 rounded-full animate-spin"></div>
+                          </div>
+                          {/* Inner pulsing dot */}
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <div className="w-3 h-3 bg-blue-600 rounded-full animate-pulse"></div>
+                          </div>
+                        </div>
 
-                    {/* Loading text */}
-                    <div className="space-y-2">
-                      <h3 className="text-lg font-semibold text-slate-700">
-                        {isCheckingStatus
-                          ? "Verifying Access Permissions"
-                          : "Securing Connection"}
-                      </h3>
-                      <p className="text-sm text-slate-500 max-w-sm mx-auto leading-relaxed">
-                        {isCheckingStatus
-                          ? "Checking your access level and domain permissions..."
-                          : "Establishing secure browsing session through Australian VPN..."}
-                      </p>
-                    </div>
+                        {/* Loading text */}
+                        <div className="space-y-2">
+                          <h3 className="text-lg font-semibold text-slate-700">
+                            {isCheckingStatus
+                              ? "Verifying Access Permissions"
+                              : "Securing Connection"}
+                          </h3>
+                          <p className="text-sm text-slate-500 max-w-sm mx-auto leading-relaxed">
+                            {isCheckingStatus
+                              ? "Checking your access level and domain permissions..."
+                              : "Establishing secure browsing session through Australian VPN..."}
+                          </p>
+                        </div>
 
-                    {/* Progress indicator */}
-                    <div className="mt-6 w-48 mx-auto">
-                      <div className="flex items-center space-x-2 text-xs text-slate-400">
-                        <div className="flex-1 h-1 bg-slate-200 rounded-full overflow-hidden">
-                          <div className="h-full bg-gradient-to-r from-blue-500 to-emerald-500 rounded-full animate-pulse"></div>
+                        {/* Progress indicator */}
+                        <div className="mt-6 w-48 mx-auto">
+                          <div className="flex items-center space-x-2 text-xs text-slate-400">
+                            <div className="flex-1 h-1 bg-slate-200 rounded-full overflow-hidden">
+                              <div className="h-full bg-gradient-to-r from-blue-500 to-emerald-500 rounded-full animate-pulse"></div>
+                            </div>
+                          </div>
+                          <div className="mt-2 flex items-center justify-center space-x-2">
+                            <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></div>
+                            <div
+                              className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"
+                              style={{ animationDelay: "0.1s" }}
+                            ></div>
+                            <div
+                              className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"
+                              style={{ animationDelay: "0.2s" }}
+                            ></div>
+                          </div>
+                        </div>
+
+                        {/* Security badges */}
+                        <div className="mt-8 flex items-center justify-center space-x-4">
+                          <div className="flex items-center space-x-2 px-3 py-1.5 bg-white/70 rounded-full border border-emerald-200">
+                            <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+                            <span className="text-xs font-medium text-emerald-700">
+                              VPN Secured
+                            </span>
+                          </div>
+                          <div className="flex items-center space-x-2 px-3 py-1.5 bg-white/70 rounded-full border border-blue-200">
+                            <Shield className="w-3 h-3 text-blue-600" />
+                            <span className="text-xs font-medium text-blue-700">
+                              Level {user?.accessLevel || 1} Access
+                            </span>
+                          </div>
                         </div>
                       </div>
-                      <div className="mt-2 flex items-center justify-center space-x-2">
-                        <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></div>
-                        <div
-                          className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"
-                          style={{ animationDelay: "0.1s" }}
-                        ></div>
-                        <div
-                          className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"
-                          style={{ animationDelay: "0.2s" }}
-                        ></div>
-                      </div>
                     </div>
-
-                    {/* Security badges */}
-                    <div className="mt-8 flex items-center justify-center space-x-4">
-                      <div className="flex items-center space-x-2 px-3 py-1.5 bg-white/70 rounded-full border border-emerald-200">
-                        <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
-                        <span className="text-xs font-medium text-emerald-700">
-                          VPN Secured
-                        </span>
-                      </div>
-                      <div className="flex items-center space-x-2 px-3 py-1.5 bg-white/70 rounded-full border border-blue-200">
-                        <Shield className="w-3 h-3 text-blue-600" />
-                        <span className="text-xs font-medium text-blue-700">
-                          Level {user?.accessLevel || 1} Access
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
                   );
                 }
-                
+
                 if (shouldShowRestriction) {
                   return (
-                /* Show URL restriction error for blocked domains (NEVER for Level 3) */
-                <div className="flex-1 flex items-center justify-center bg-gray-50">
-                  <div className="text-center max-w-md">
-                    <AlertTriangle className="h-16 w-16 text-red-500 mx-auto mb-4" />
-                    <h2 className="text-xl font-semibold text-gray-900 mb-2">
-                      Access Restricted
-                    </h2>
-                    <p className="text-gray-600 mb-4">
-                      Your access level ({config.name}) does not permit
-                      accessing this URL.
-                    </p>
-                    <div className="text-sm text-gray-500">
-                      <p className="mb-2">Allowed domains for your level:</p>
-                      <ul className="list-disc list-inside space-y-1">
-                        {config.allowedDomains.map((domain, index) => (
-                          <li key={index}>{domain}</li>
-                        ))}
-                      </ul>
+                    /* Show URL restriction error for blocked domains (NEVER for Level 3) */
+                    <div className="flex-1 flex items-center justify-center bg-gray-50">
+                      <div className="text-center max-w-md">
+                        <AlertTriangle className="h-16 w-16 text-red-500 mx-auto mb-4" />
+                        <h2 className="text-xl font-semibold text-gray-900 mb-2">
+                          Access Restricted
+                        </h2>
+                        <p className="text-gray-600 mb-4">
+                          Your access level ({config.name}) does not permit
+                          accessing this URL.
+                        </p>
+                        <div className="text-sm text-gray-500">
+                          <p className="mb-2">
+                            Allowed domains for your level:
+                          </p>
+                          <ul className="list-disc list-inside space-y-1">
+                            {config.allowedDomains.map((domain, index) => (
+                              <li key={index}>{domain}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
                   );
                 }
-                
+
                 // Default case for Level 1/2: show webview only if all checks pass
                 return (
                   <webview
@@ -2841,11 +2850,13 @@ const BrowserWindow: React.FC<BrowserWindowProps> = ({ user, onLogout }) => {
         onClose={() => setIsSettingsModalOpen(false)}
       />
 
+      {/* Google Drive Modal removed */}
+
       {/* SharePoint Sidebar */}
       <SharePointSidebar
         isOpen={isSharePointSidebarOpen}
         onClose={() => setIsSharePointSidebarOpen(false)}
-        onFileSelect={(file) => {
+        onFileSelect={(_file) => {
           // console.log("Selected SharePoint file:", file);
           // Could navigate to file or perform other actions
         }}

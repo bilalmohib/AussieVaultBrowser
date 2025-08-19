@@ -5,14 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:electron": "wait-on tcp:5173 && cross-env IS_DEV=true electron .",
     "build": "tsc && vite build",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
     "test:build": "npm run build && npm run make",
     "start": "electron-forge start",
     "electron": "wait-on tcp:5173 && cross-env IS_DEV=true electron .",
+    "electron:dev": "npm run dev",
     "electron:pack": "electron-builder",
-    "electron:dev": "concurrently \"npm run dev\" \"npm run electron\"",
     "electron:pack:win": "electron-builder --win",
     "electron:pack:mac": "electron-builder --mac",
     "electron:pack:linux": "electron-builder --linux",
@@ -71,7 +72,6 @@
     "@electron-forge/cli": "^7.8.1",
     "@electron-forge/maker-deb": "^7.8.1",
     "@electron-forge/maker-dmg": "^7.8.1",
-    "@electron-forge/maker-rpm": "^7.8.1",
     "@electron-forge/maker-squirrel": "^7.8.1",
     "@electron-forge/maker-zip": "^7.8.1",
     "@electron-forge/plugin-auto-unpack-natives": "^7.8.1",
@@ -85,6 +85,8 @@
     "@typescript-eslint/eslint-plugin": "^8.15.0",
     "@typescript-eslint/parser": "^8.15.0",
     "@vitejs/plugin-react": "^4.3.3",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
     "electron": "^37.2.0",
     "eslint": "^9.17.0",
     "eslint-plugin-react-hooks": "^5.0.0",
@@ -94,7 +96,8 @@
     "typescript": "^5.7.2",
     "vite": "^6.0.3",
     "vite-plugin-electron": "^0.29.0",
-    "vite-plugin-electron-renderer": "^0.14.6"
+    "vite-plugin-electron-renderer": "^0.14.6",
+    "wait-on": "^7.0.1"
   },
   "main": "dist-electron/main.js"
 }

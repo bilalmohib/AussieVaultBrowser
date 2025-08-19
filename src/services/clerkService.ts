@@ -87,11 +87,30 @@ class ClerkAuthService {
   
   private async performInitialization(): Promise<void> {
     try {
-      // Get publishable key from environment (support multiple naming conventions)
-      const publishableKey = import.meta.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+      // Get publishable key from database using config-manager
+      let publishableKey = '';
+      
+      try {
+        // Import config-manager dynamically to avoid circular dependencies
+        const { getConfig } = await import('../utils/config-manager');
+        publishableKey = await getConfig('NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY', '');
+        
+              // If not found in database, fall back to environment variables (only for development)
+      if (!publishableKey) {
+        publishableKey = import.meta.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || '';
+        console.log('WARNING: Using local environment variable for Clerk publishable key because database value not found');
+        console.log('This may indicate that use_database_env_variables=true but NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is not in the database');
+      }
+      } catch (error) {
+        console.error('Failed to get Clerk key from database:', error);
+        // Fall back to environment variables as last resort
+        publishableKey = import.meta.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || '';
+        console.log('WARNING: Using local environment variable for Clerk publishable key due to database error');
+        console.log('This is a fallback mechanism and may indicate database connectivity issues');
+      }
       
       if (!publishableKey) {
-        throw new Error('Clerk publishable key is required. Set VITE_CLERK_PUBLISHABLE_KEY, CLERK_PUBLISHABLE_KEY, or NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY in your .env file');
+        throw new Error('Clerk publishable key is required but not found in database or environment variables');
       }
 
       // 🔐 CHECK FOR EXISTING AUTH: Look for existing Clerk session in localStorage
@@ -213,15 +232,27 @@ class ClerkAuthService {
       ClerkAuthService.globalAuthState = clearedState;
       ClerkAuthService.persistAuthState(clearedState);
       
-             // 🔐 RESET GLOBAL INITIALIZATION: Allow re-initialization after sign out
-       ClerkAuthService.isGloballyInitialized = false;
-       ClerkAuthService.globalInitPromise = null;
+      // 🔐 RESET GLOBAL INITIALIZATION: Allow re-initialization after sign out
+      ClerkAuthService.isGloballyInitialized = false;
+      ClerkAuthService.globalInitPromise = null;
 
       // console.log('✅ User signed out successfully');
     } catch (error) {
       // console.error('❌ Sign out failed:', error);
       throw error;
     }
+  }
+
+  // Optional helper to clear local state without calling network
+  forceLocalSignOut(): void {
+    const clearedState = { user: null, isLoaded: true, isSignedIn: false };
+    ClerkAuthService.globalAuthState = clearedState as any;
+    ClerkAuthService.persistAuthState(clearedState as any);
+    ClerkAuthService.isGloballyInitialized = false;
+    ClerkAuthService.globalInitPromise = null;
+    this.authStateCallbacks.forEach(cb => {
+      try { cb(clearedState as any); } catch {}
+    });
   }
 
   // 🔐 ENHANCED METHOD: Force authentication state refresh for new windows

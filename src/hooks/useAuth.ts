@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { SecureBrowserDatabaseService } from '@/services/databaseService';
+import { supabase } from '@/lib/supabase';
 
 interface User {
   id: number; // Changed from string to number
@@ -103,12 +104,21 @@ export const useAuth = () => {
       // Update last login time
       await SecureBrowserDatabaseService.updateLastLogin();
 
+      // Refresh user data from database to ensure we have the most current values
+      await SecureBrowserDatabaseService.refreshCurrentUser();
+      
+      // Get the refreshed user data
+      const freshDbUser = SecureBrowserDatabaseService.getCurrentUser();
+      if (!freshDbUser) {
+        throw new Error("Failed to refresh user data");
+      }
+      
       // Create the user object for the frontend
       const user: User = {
-        id: dbUser.id,
-        name: dbUser.name,
-        email: dbUser.email,
-        accessLevel: dbUser.access_level as 1 | 2 | 3,
+        id: freshDbUser.id,
+        name: freshDbUser.name,
+        email: freshDbUser.email,
+        accessLevel: freshDbUser.access_level as 1 | 2 | 3,
         avatar: undefined
       };
       
@@ -228,7 +238,19 @@ export const useAuth = () => {
     const storedAuth = localStorage.getItem("auth");
     if (storedAuth) {
       try {
+        // First validate stored data structure
         const user = JSON.parse(storedAuth);
+        
+        if (!user || !user.email || user.accessLevel === undefined || !user.id) {
+          console.error("❌ Invalid stored auth data found");
+          localStorage.removeItem("auth");
+          setAuthState({
+            user: null,
+            isLoading: false,
+            isAuthenticated: false,
+          });
+          return;
+        }
         
         // Migration: Update old hardcoded names with email-based names
         let updatedUser = { ...user };
@@ -237,7 +259,37 @@ export const useAuth = () => {
           
           // Update localStorage with new name
           localStorage.setItem("auth", JSON.stringify(updatedUser));
-          // console.log(`🔄 Updated cached user name from "${user.name}" to "${updatedUser.name}"`);
+        }
+        
+        // Verify user exists in database with correct permissions
+        try {
+          // Direct database check to verify user still exists and has correct access level
+          const { data: dbUser, error } = await supabase
+            .from("users")
+            .select("*")
+            .eq("email", user.email)
+            .single();
+            
+          if (error || !dbUser) {
+            console.error("❌ User not found in database during session restoration");
+            localStorage.removeItem("auth");
+            setAuthState({
+              user: null,
+              isLoading: false,
+              isAuthenticated: false,
+            });
+            return;
+          }
+          
+          // If access level changed in database, update local user
+          if (dbUser.access_level !== user.accessLevel) {
+            console.log(`🔄 User access level changed: ${user.accessLevel} → ${dbUser.access_level}`);
+            updatedUser.accessLevel = dbUser.access_level;
+            localStorage.setItem("auth", JSON.stringify(updatedUser));
+          }
+        } catch (verifyError) {
+          console.error("❌ Error verifying user in database:", verifyError);
+          // Continue with stored user but schedule verification later
         }
         
         // Log session restoration

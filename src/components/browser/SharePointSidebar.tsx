@@ -48,6 +48,8 @@ interface DragPreviewData {
   file: SharePointFile;
   blob: Blob | null;
   isReady: boolean;
+  // Local temp file path prepared in the main process for native OS drag
+  localPath?: string;
 }
 
 // Enable debug mode to show detailed drag information
@@ -358,16 +360,32 @@ export const SharePointSidebar: React.FC<SharePointSidebarProps> = ({
           );
         }
 
-        // Update with ready state
-        setDragPreviews(
-          (prev) =>
-            new Map(
-              prev.set(file.id, {
-                file,
-                blob,
-                isReady: true,
-              })
-            )
+        // Prepare a native temp file in main process so we can start an OS-level drag synchronously
+        let localPath: string | undefined;
+        try {
+          const arrayBuffer = await blob.arrayBuffer();
+          const api: any = (window as any).secureBrowser?.sharepoint;
+          if (api?.prepareTempFile) {
+            const res = await api.prepareTempFile({ data: arrayBuffer, filename: file.name });
+            if (res?.success && res?.path) {
+              localPath = res.path as string;
+              console.log(`📦 Temp file ready for native drag: ${localPath}`);
+            }
+          }
+        } catch (prepErr) {
+          console.warn('Temp file preparation failed (fallback will still work):', prepErr);
+        }
+
+        // Update with ready state and local temp file path (if available)
+        setDragPreviews((prev) =>
+          new Map(
+            prev.set(file.id, {
+              file,
+              blob,
+              isReady: true,
+              localPath,
+            })
+          )
         );
 
         console.log(
@@ -439,6 +457,19 @@ export const SharePointSidebar: React.FC<SharePointSidebarProps> = ({
 
       // Get cached file data
       const cachedData = dragPreviews.get(file.id);
+
+      // Preferred path: use native OS drag via main process so the embedded site receives a real File
+      if (cachedData?.isReady && cachedData.localPath && (window as any).secureBrowser?.sharepoint?.startDrag) {
+        // Prevent the default HTML5 drag – we'll initiate an OS-level drag instead
+        e.preventDefault();
+        try {
+          (window as any).secureBrowser.sharepoint.startDrag(cachedData.localPath);
+          console.log(`🚀 Native drag started for: ${file.name}`);
+        } catch (err) {
+          console.error('Native drag failed, falling back to in-page drag:', err);
+          // Fall through to in-page drag using File object
+        }
+      }
 
       if (cachedData?.isReady && cachedData.blob) {
         try {
@@ -793,20 +824,22 @@ export const SharePointSidebar: React.FC<SharePointSidebarProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/10" onClick={onClose} />
+    // IMPORTANT: Do not overlay the whole browser window. The wrapper must NOT intercept events
+    // so that drag-and-drop to the underlying web page works. We disable pointer events on the
+    // wrapper and re-enable them on the sidebar panel only.
+    <div className="fixed inset-0 z-50 flex" style={{ pointerEvents: 'none' }}>
 
       {/* Sidebar */}
       <div
         ref={sidebarRef}
-        style={{ width: `${width}px` }}
         className={cn(
           "relative ml-auto h-full bg-white dark:bg-gray-900 shadow-2xl transform transition-all duration-300 ease-out",
           isOpen ? "translate-x-0" : "translate-x-full",
           isDragging ? "transition-none" : "",
           className
         )}
+        // Re-enable pointer events for the actual sidebar panel only
+        style={{ width: `${width}px`, pointerEvents: 'auto' }}
       >
         {/* File viewer modal mounted here */}
         <FileViewerModal
